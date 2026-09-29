@@ -1,14 +1,13 @@
 import { logoIssues } from '../state/issues'
-import { CLIP_DURATION, entryDurationOf, selectedLogo, useStudio } from '../state/store'
-import { Notice, Row, Segmented, Slider } from './controls'
-import { EFFECT_OPTIONS } from './effectOptions'
+import { selectedLogo, useStudio } from '../state/store'
+import { Notice, Row, Slider } from './controls'
 import { Thumbnail } from './Thumbnail'
 
 /** Settings of the selected logo. */
 export function LogoDetails() {
   const logo = useStudio(selectedLogo)
   const resolution = useStudio((s) => s.resolution)
-  const { updateLogoOptions, setLogoEffect } = useStudio.getState()
+  const { updateLogoOptions } = useStudio.getState()
   if (!logo) return null
 
   const { id, options, processed } = logo
@@ -22,18 +21,6 @@ export function LogoDetails() {
       <p className="truncate text-sm text-neutral-200" title={logo.name}>
         {logo.name}
       </p>
-
-      <Segmented label="Efecto" value={options.effect} options={EFFECT_OPTIONS} onChange={(e) => setLogoEffect(id, e)} />
-      <Slider
-        label="Duración de entrada"
-        value={entryDurationOf(options)}
-        min={0.5}
-        max={Math.min(3, CLIP_DURATION - 1)}
-        step={0.05}
-        format={(v) => `${v.toFixed(2)} s`}
-        onChange={(entryDuration) => update({ entryDuration })}
-        onReset={() => update({ entryDuration: null })}
-      />
 
       {logo.error && <Notice tone="error">{logo.error}</Notice>}
       {analysis?.hasTransparency && !options.removeWhite && <Notice tone="ok">Fondo transparente</Notice>}

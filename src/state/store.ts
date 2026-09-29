@@ -1,13 +1,17 @@
 import { create } from 'zustand'
-import { EFFECTS, type EffectId } from '../engine/effects'
-import type { ClipSpec } from '../engine/timeline'
 import { DEFAULT_STAGE_SETTINGS, type StageSettings } from '../engine/types'
 import type { LogoSource } from '../processing/decode'
 import type { ProcessedLogo } from '../processing/pipeline'
 import { DEFAULT_WHITE_THRESHOLD } from '../processing/removeWhite'
+import {
+  DEFAULT_ANIMATION,
+  DEFAULT_SEQUENCE,
+  patchAnimation,
+  type AnimationPatch,
+  type AnimationSettings,
+  type SequenceSettings,
+} from './animation'
 
-/** Time each logo is on screen. The hold is whatever remains after the entry effect. */
-export const CLIP_DURATION = 6
 /** Empty background before and after an individual video, when enabled. */
 export const PAD_SECONDS = 1
 
@@ -15,42 +19,22 @@ export type Resolution = 1080 | 2160
 export type Fps = 30 | 60
 
 export interface LogoOptions {
-  effect: EffectId
-  /** Seconds the entry lasts; null = the effect's natural length. */
-  entryDuration: number | null
   removeWhite: boolean
   whiteThreshold: number
   removeEnclosedWhite: boolean
   /** Manual size multiplier on top of the automatic normalization. */
   scale: number
+  /** This logo's own animation; null = it follows the general one. */
+  animation: AnimationSettings | null
 }
 
 export const DEFAULT_LOGO_OPTIONS: LogoOptions = {
-  effect: 'swing',
-  entryDuration: null,
   removeWhite: false,
   whiteThreshold: DEFAULT_WHITE_THRESHOLD,
   removeEnclosedWhite: false,
   scale: 1,
+  animation: null,
 }
-
-/** Seconds until the logo is at rest; the hold is the rest of the clip. */
-export const entryDurationOf = (options: LogoOptions): number =>
-  options.entryDuration ?? EFFECTS[options.effect].entryDuration
-
-/**
- * The clip for one logo's individual video. The preview plays exactly this, so what you
- * scrub is what gets exported. With padding on, the logo also exits before the tail so
- * the video doesn't cut from the logo straight to an empty frame.
- */
-export const clipSpecOf = (options: LogoOptions, padEnds: boolean): ClipSpec => ({
-  effect: options.effect,
-  entryDuration: options.entryDuration ?? undefined,
-  duration: CLIP_DURATION,
-  lead: padEnds ? PAD_SECONDS : 0,
-  tail: padEnds ? PAD_SECONDS : 0,
-  exit: padEnds,
-})
 
 export interface LogoItem {
   id: string
@@ -68,7 +52,9 @@ export type PreviewMode = 'logo' | 'sequence'
 interface StudioState {
   logos: LogoItem[]
   selectedId: string | null
-  defaultEffect: EffectId
+  /** The animation every logo follows unless it has its own. */
+  animation: AnimationSettings
+  sequence: SequenceSettings
   settings: StageSettings
   resolution: Resolution
   fps: Fps
@@ -82,10 +68,16 @@ interface StudioState {
   removeLogo: (id: string) => void
   moveLogo: (fromId: string, toId: string) => void
   selectLogo: (id: string) => void
-  updateLogoOptions: (id: string, patch: Partial<LogoOptions>) => void
-  setLogoEffect: (id: string, effect: EffectId) => void
-  setDefaultEffect: (effect: EffectId) => void
-  applyEffectToAll: (effect: EffectId) => void
+  updateLogoOptions: (id: string, patch: Partial<Omit<LogoOptions, 'animation'>>) => void
+  /** Edits the general animation (id = null) or a logo's own one. */
+  updateAnimation: (id: string | null, patch: AnimationPatch) => void
+  /** Gives the logo its own animation, starting from the general one. */
+  customizeAnimation: (id: string) => void
+  /** The logo goes back to following the general animation. */
+  resetAnimation: (id: string) => void
+  /** Makes the logo's own animation the general one, for every logo. */
+  applyAnimationToAll: (id: string) => void
+  updateSequence: (patch: Partial<SequenceSettings>) => void
   setProcessed: (id: string, result: { processed: ProcessedLogo } | { error: string }) => void
   updateSettings: (patch: Partial<StageSettings>) => void
   setResolution: (resolution: Resolution) => void
@@ -97,13 +89,27 @@ interface StudioState {
   setTime: (time: number) => void
 }
 
+let idCounter = 0
+/**
+ * Unique id. crypto.randomUUID only exists in secure contexts (https or localhost), so
+ * opening the dev server from another device by IP would otherwise break uploads.
+ */
+const newId = (): string =>
+  globalThis.crypto?.randomUUID?.() ?? `logo-${Date.now().toString(36)}-${(idCounter++).toString(36)}`
+
 const updateLogo = (logos: LogoItem[], id: string, update: (logo: LogoItem) => LogoItem) =>
   logos.map((logo) => (logo.id === id ? update(logo) : logo))
+
+const withAnimation = (logo: LogoItem, animation: AnimationSettings | null): LogoItem => ({
+  ...logo,
+  options: { ...logo.options, animation },
+})
 
 export const useStudio = create<StudioState>()((set) => ({
   logos: [],
   selectedId: null,
-  defaultEffect: 'swing',
+  animation: DEFAULT_ANIMATION,
+  sequence: DEFAULT_SEQUENCE,
   settings: DEFAULT_STAGE_SETTINGS,
   resolution: 1080,
   fps: 60,
@@ -117,10 +123,10 @@ export const useStudio = create<StudioState>()((set) => ({
     set((s) => {
       if (entries.length === 0) return {}
       const added: LogoItem[] = entries.map(({ name, source }) => ({
-        id: crypto.randomUUID(),
+        id: newId(),
         name,
         source,
-        options: { ...DEFAULT_LOGO_OPTIONS, effect: s.defaultEffect },
+        options: DEFAULT_LOGO_OPTIONS,
         processed: null,
         error: null,
         demo,
@@ -146,21 +152,29 @@ export const useStudio = create<StudioState>()((set) => ({
       logos.splice(to, 0, ...logos.splice(from, 1))
       return { logos }
     }),
-  selectLogo: (selectedId) => set((s) => (s.selectedId === selectedId ? {} : { selectedId, time: 0 })),
+  selectLogo: (selectedId) =>
+    set((s) => (s.selectedId === selectedId ? {} : { selectedId, time: s.previewMode === 'logo' ? 0 : s.time })),
   updateLogoOptions: (id, patch) =>
     set((s) => ({ logos: updateLogo(s.logos, id, (logo) => ({ ...logo, options: { ...logo.options, ...patch } })) })),
-  setLogoEffect: (id, effect) =>
-    set((s) => ({
-      logos: updateLogo(s.logos, id, (logo) => ({ ...logo, options: { ...logo.options, effect, entryDuration: null } })),
-      time: 0,
-    })),
-  setDefaultEffect: (defaultEffect) => set({ defaultEffect }),
-  applyEffectToAll: (effect) =>
-    set((s) => ({
-      logos: s.logos.map((logo) => ({ ...logo, options: { ...logo.options, effect, entryDuration: null } })),
-      defaultEffect: effect,
-      time: 0,
-    })),
+  updateAnimation: (id, patch) =>
+    set((s) => {
+      if (id === null) return { animation: patchAnimation(s.animation, patch) }
+      return {
+        logos: updateLogo(s.logos, id, (logo) =>
+          withAnimation(logo, patchAnimation(logo.options.animation ?? s.animation, patch)),
+        ),
+      }
+    }),
+  customizeAnimation: (id) =>
+    set((s) => ({ logos: updateLogo(s.logos, id, (logo) => withAnimation(logo, logo.options.animation ?? s.animation)) })),
+  resetAnimation: (id) => set((s) => ({ logos: updateLogo(s.logos, id, (logo) => withAnimation(logo, null)) })),
+  applyAnimationToAll: (id) =>
+    set((s) => {
+      const own = s.logos.find((logo) => logo.id === id)?.options.animation
+      if (!own) return {}
+      return { animation: own, logos: s.logos.map((logo) => withAnimation(logo, null)) }
+    }),
+  updateSequence: (patch) => set((s) => ({ sequence: { ...s.sequence, ...patch } })),
   setProcessed: (id, result) =>
     set((s) => ({
       logos: updateLogo(s.logos, id, (logo) =>
@@ -181,3 +195,7 @@ export const useStudio = create<StudioState>()((set) => ({
 
 export const selectedLogo = (s: Pick<StudioState, 'logos' | 'selectedId'>): LogoItem | null =>
   s.logos.find((logo) => logo.id === s.selectedId) ?? null
+
+/** The animation a logo plays: its own, or the general one. */
+export const animationOf = (logo: LogoItem, general: AnimationSettings): AnimationSettings =>
+  logo.options.animation ?? general

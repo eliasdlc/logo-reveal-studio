@@ -11,7 +11,7 @@ import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalList
 import { CSS } from '@dnd-kit/utilities'
 import { EFFECTS } from '../engine/effects'
 import { logoIssues, type LogoStatus } from '../state/issues'
-import { useStudio, type LogoItem } from '../state/store'
+import { animationOf, useStudio, type LogoItem } from '../state/store'
 import { Thumbnail } from './Thumbnail'
 
 /** Sortable list of logos; the order is the order of the combined sequence. */
@@ -51,6 +51,7 @@ const STATUS_BADGE: Record<LogoStatus, { icon: string; className: string; title:
 
 function LogoRow({ logo, index }: { logo: LogoItem; index: number }) {
   const selected = useStudio((s) => s.selectedId === logo.id)
+  const general = useStudio((s) => s.animation)
   const { selectLogo, removeLogo } = useStudio.getState()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: logo.id })
   const badge = STATUS_BADGE[logoIssues(logo).status]
@@ -86,7 +87,10 @@ function LogoRow({ logo, index }: { logo: LogoItem; index: number }) {
           <span className="truncate text-sm text-neutral-200" title={logo.name}>
             {logo.name}
           </span>
-          <span className="text-[11px] text-neutral-500">{EFFECTS[logo.options.effect].label}</span>
+          <span className="truncate text-[11px] text-neutral-500">
+            {EFFECTS[animationOf(logo, general).entry.effect].label}
+            {logo.options.animation && ' · animación propia'}
+          </span>
         </span>
       </button>
       {badge.icon && (

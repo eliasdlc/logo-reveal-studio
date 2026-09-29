@@ -83,7 +83,7 @@ export function Slider(props: {
 }
 
 export function Segmented<T extends string>(props: {
-  value: T
+  value: T | null
   options: { value: T; label: string; title?: string }[]
   onChange: (value: T) => void
   label: string
@@ -112,6 +112,47 @@ export function Segmented<T extends string>(props: {
       ))}
     </div>
   )
+}
+
+/** A grid of choices that may wrap onto two lines (effect and transition pickers). */
+export function OptionGrid<T extends string>(props: {
+  value: T | null
+  options: { value: T; label: string; title?: string }[]
+  onChange: (value: T) => void
+  label: string
+  columns?: number
+}) {
+  return (
+    <div
+      className="grid gap-1"
+      style={{ gridTemplateColumns: `repeat(${props.columns ?? 3}, minmax(0, 1fr))` }}
+      role="radiogroup"
+      aria-label={props.label}
+    >
+      {props.options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={props.value === o.value}
+          title={o.title}
+          onClick={() => props.onChange(o.value)}
+          className={`min-h-8 rounded-md px-1.5 py-1.5 text-center text-xs leading-tight transition ${
+            props.value === o.value
+              ? 'bg-white font-medium text-neutral-900'
+              : 'bg-white/[0.04] text-neutral-300 ring-1 ring-white/10 hover:bg-white/10 hover:text-white'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Small uppercase caption above a group of controls. */
+export function Caption({ children }: { children: ReactNode }) {
+  return <p className="text-[10px] font-medium tracking-wider text-neutral-500 uppercase">{children}</p>
 }
 
 const NOTICE_STYLES = {

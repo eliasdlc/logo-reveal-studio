@@ -2,7 +2,7 @@ import { LogoStage } from '../engine/stage'
 import { programLength, type Program } from '../engine/timeline'
 import type { StageLogo, StageSettings } from '../engine/types'
 import { chooseCodec, hasWebCodecs, type CodecChoice, type VideoFormat } from './codec'
-import { encodeMp4, frameCountFor } from './encode'
+import { encodeVideo, frameCountFor } from './encode'
 
 export class ExportError extends Error {}
 
@@ -22,8 +22,8 @@ export async function requireCodec(format: VideoFormat): Promise<CodecChoice> {
   const codec = await chooseCodec(format)
   if (!codec) {
     throw new ExportError(
-      `Este navegador no puede codificar H.264 a ${format.width}×${format.height} ${format.fps} fps. ` +
-        'Prueba con una resolución o fps más bajos.',
+      `Este navegador no puede codificar video a ${format.width}×${format.height} ${format.fps} fps ` +
+        '(ni H.264 ni VP9). Prueba con una resolución o fps más bajos.',
     )
   }
   return codec
@@ -31,10 +31,12 @@ export async function requireCodec(format: VideoFormat): Promise<CodecChoice> {
 
 export const programFrameCount = (program: Program, fps: number): number => frameCountFor(programLength(program), fps)
 
-/** Renders a program to an MP4 with its own off-screen stage at the export size. */
-export async function exportProgramMp4(job: ProgramExport, codec?: CodecChoice): Promise<Blob> {
+/**
+ * Renders a program to a video (MP4, or WebM with the VP9 fallback) with its own
+ * off-screen stage at the export size.
+ */
+export async function exportProgramVideo(job: ProgramExport, codec: CodecChoice): Promise<Blob> {
   if (job.program.items.length === 0) throw new ExportError('No hay logos listos para exportar.')
-  codec ??= await requireCodec(job.format)
 
   const canvas = new OffscreenCanvas(job.format.width, job.format.height)
   const stage = new LogoStage(canvas, { preserveDrawingBuffer: true })
@@ -42,7 +44,7 @@ export async function exportProgramMp4(job: ProgramExport, codec?: CodecChoice):
     stage.setSize(job.format.width, job.format.height)
     stage.setSettings(job.settings)
     stage.setProgram(job.program)
-    return await encodeMp4({
+    return await encodeVideo({
       canvas,
       format: job.format,
       codec,
