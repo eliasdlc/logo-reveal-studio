@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { REST_STATE, evaluateEffect } from './effects'
-import { EXIT_DURATION, clipLength, clipSegments, clipStateAt, type ClipSpec } from './timeline'
+import {
+  EXIT_DURATION,
+  clipLength,
+  clipSegments,
+  clipStateAt,
+  programAt,
+  programLength,
+  programStarts,
+  type ClipSpec,
+} from './timeline'
 
 const bare: ClipSpec = { effect: 'swing', duration: 6, lead: 0, tail: 0, exit: false }
 const padded: ClipSpec = { ...bare, lead: 1, tail: 1, exit: true }
@@ -49,5 +58,40 @@ describe('clipSegments', () => {
 
   it('omits empty parts', () => {
     expect(clipSegments(bare, 1.2).map((s) => s.kind)).toEqual(['entry', 'hold'])
+  })
+})
+
+describe('programs', () => {
+  const seqClip: ClipSpec = { effect: 'swing', duration: 6, lead: 0, tail: 0, exit: true }
+  const program = {
+    items: [
+      { logo: 'a', scale: 1, clip: seqClip },
+      { logo: 'b', scale: 1, clip: { ...seqClip, effect: 'flip' as const } },
+      { logo: 'c', scale: 1, clip: seqClip },
+    ],
+  }
+
+  it('plays items back to back', () => {
+    expect(programLength(program)).toBe(18)
+    expect(programStarts(program)).toEqual([0, 6, 12])
+    expect(programAt(program, 0)!.item.logo).toBe('a')
+    expect(programAt(program, 5.99)!.item.logo).toBe('a')
+    expect(programAt(program, 6)!.item.logo).toBe('b')
+    expect(programAt(program, 6)!.local).toBe(0)
+    expect(programAt(program, 13)!.item.logo).toBe('c')
+    expect(programAt(program, 18)!.item.logo).toBe('c')
+  })
+
+  it('shows each item with its own effect and local time', () => {
+    expect(programAt(program, 6.5)!.state).toEqual(clipStateAt(program.items[1].clip, 0.5))
+  })
+
+  it('never shows two logos at once: the outgoing one is gone before the next enters', () => {
+    expect(programAt(program, 5.999)!.state!.opacity).toBeLessThan(0.01)
+  })
+
+  it('handles an empty program', () => {
+    expect(programLength({ items: [] })).toBe(0)
+    expect(programAt({ items: [] }, 1)).toBeNull()
   })
 })

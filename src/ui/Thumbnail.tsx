@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { StageLogo } from '../engine/types'
 
 /** Small preview of the processed texture over a checkerboard, so transparency is visible. */
-export function Thumbnail({ logo }: { logo: StageLogo | null }) {
+export function Thumbnail({ logo, className = 'h-28 p-3' }: { logo: StageLogo | null; className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -12,7 +12,7 @@ export function Thumbnail({ logo }: { logo: StageLogo | null }) {
     const size = 2 * canvas.clientWidth * window.devicePixelRatio
     const fit = Math.min(1, size / bitmap.width, size / bitmap.height)
     let cancelled = false
-    void createImageBitmap(new ImageData(new Uint8ClampedArray(bitmap.data), bitmap.width, bitmap.height), {
+    void createImageBitmap(new ImageData(bitmap.data, bitmap.width, bitmap.height), {
       resizeWidth: Math.max(1, Math.round(bitmap.width * fit)),
       resizeHeight: Math.max(1, Math.round(bitmap.height * fit)),
       resizeQuality: 'high',
@@ -29,11 +29,11 @@ export function Thumbnail({ logo }: { logo: StageLogo | null }) {
   }, [logo])
 
   return (
-    <div className="checkerboard flex h-28 items-center justify-center overflow-hidden rounded-md p-3 ring-1 ring-white/10">
+    <div className={`checkerboard flex items-center justify-center overflow-hidden rounded-md ring-1 ring-white/10 ${className}`}>
       {logo ? (
         <canvas ref={canvasRef} className="max-h-full max-w-full object-contain" />
       ) : (
-        <span className="text-xs text-neutral-500">Procesando…</span>
+        <span className="text-[10px] text-neutral-500">…</span>
       )}
     </div>
   )

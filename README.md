@@ -28,7 +28,8 @@ Requiere Chrome o Edge de escritorio (WebCodecs para exportar).
   transparente, color bleeding y rasterizado de SVG a 2× su tamaño en pantalla.
 - `src/export/` — export MP4 frame por frame: WebCodecs (H.264) + Mediabunny.
 - `src/ui/` — componentes React.
-- `src/state/` — estado global (Zustand).
+- `src/state/` — estado global (Zustand), procesamiento por logo y los «programas» que
+  reproduce el preview y se exportan (logo individual o secuencia).
 
 ## Pipeline de color
 
@@ -38,6 +39,14 @@ iluminación ni tone mapping: un píxel opaco del logo sale con el mismo valor q
 archivo.
 
 ## Export
+
+Tres salidas, cada una idéntica a lo que muestra el preview en el modo correspondiente:
+
+- **Exportar este logo** — un MP4 del logo seleccionado (con el margen de 1 s opcional).
+- **Exportar todos (ZIP)** — un MP4 por logo, numerados en el orden de la lista.
+- **Exportar secuencia completa** — un solo MP4 con todos los logos en orden; cada uno sale
+  (escala 1 → 0.95, opacidad 1 → 0 en 0.5 s) antes de que entre el siguiente.
+
 
 - Frame por frame (`t = i / fps`), nunca en tiempo real: el video sale igual aunque la
   PC sea lenta, y cada frame es exactamente el del preview.

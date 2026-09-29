@@ -1,5 +1,8 @@
-import { clipSegments, type ClipSegment } from '../engine/timeline'
-import { clipSpecOf, entryDurationOf, playbackLength, useStudio } from '../state/store'
+import { useShallow } from 'zustand/react/shallow'
+import { EFFECTS } from '../engine/effects'
+import { clipSegments, programLength, programStarts, type ClipSegment } from '../engine/timeline'
+import { previewNames, previewProgram } from '../state/program'
+import { useStudio } from '../state/store'
 
 const FRAME = 1 / 60
 
@@ -14,12 +17,24 @@ export function Transport() {
   const time = useStudio((s) => s.time)
   const playing = useStudio((s) => s.playing)
   const loop = useStudio((s) => s.loop)
-  const logo = useStudio((s) => s.logo)
-  const padEnds = useStudio((s) => s.padEnds)
+  const source = useStudio(
+    useShallow((s) => ({ logos: s.logos, selectedId: s.selectedId, padEnds: s.padEnds, previewMode: s.previewMode })),
+  )
   const { setTime, setPlaying, setLoop } = useStudio.getState()
 
-  const length = playbackLength({ logo, padEnds })
-  const segments = logo ? clipSegments(clipSpecOf(logo.options, padEnds), entryDurationOf(logo.options)) : []
+  const mode = source.previewMode
+  const program = previewProgram(source)
+  const names = previewNames(source)
+  const length = Math.max(programLength(program), 0.001)
+  const starts = programStarts(program)
+  const segments = program.items.flatMap((item, i) =>
+    clipSegments(item.clip, item.clip.entryDuration ?? EFFECTS[item.clip.effect].entryDuration).map((seg) => ({
+      ...seg,
+      start: seg.start + starts[i],
+      end: seg.end + starts[i],
+      name: names[i],
+    })),
+  )
 
   const togglePlay = () => {
     if (!playing && time >= length) setTime(0)
@@ -67,22 +82,29 @@ export function Transport() {
               key={i}
               className={SEGMENT_STYLE[seg.kind].className}
               style={{ width: `${((seg.end - seg.start) / length) * 100}%` }}
-              title={`${SEGMENT_STYLE[seg.kind].label} ${(seg.end - seg.start).toFixed(2)} s`}
+              title={`${seg.name} · ${SEGMENT_STYLE[seg.kind].label} ${(seg.end - seg.start).toFixed(2)} s`}
             />
           ))}
         </div>
         <div className="flex gap-3 text-[10px] text-neutral-500">
-          {segments
-            .filter((seg) => seg.kind !== 'empty')
-            .map((seg) => (
-              <span key={seg.kind}>
-                {SEGMENT_STYLE[seg.kind].label} {(seg.end - seg.start).toFixed(2)} s
-              </span>
-            ))}
+          {mode === 'sequence' ? (
+            <span>
+              {program.items.length} {program.items.length === 1 ? 'logo' : 'logos'} en secuencia · cada uno sale
+              antes de que entre el siguiente
+            </span>
+          ) : (
+            segments
+              .filter((seg) => seg.kind !== 'empty')
+              .map((seg) => (
+                <span key={seg.kind}>
+                  {SEGMENT_STYLE[seg.kind].label} {(seg.end - seg.start).toFixed(2)} s
+                </span>
+              ))
+          )}
         </div>
       </div>
 
-      <span className="w-24 shrink-0 text-right font-mono text-xs tabular-nums text-neutral-400">
+      <span className="shrink-0 text-right font-mono text-xs whitespace-nowrap tabular-nums text-neutral-400">
         {Math.min(time, length).toFixed(2)} / {length.toFixed(2)} s
       </span>
 

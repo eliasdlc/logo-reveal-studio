@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { LogoStage } from '../engine/stage'
-import type { StageLogo } from '../engine/types'
-import { clipSpecOf, playbackLength, useStudio } from '../state/store'
+import { programLength } from '../engine/timeline'
+import { previewProgram } from '../state/program'
+import { useStudio } from '../state/store'
 
 /** 16:9 live preview. Draws through the same LogoStage.renderFrame(t) the exporter uses. */
 export function Preview() {
@@ -16,17 +17,10 @@ export function Preview() {
     container.appendChild(canvas)
     const stage = new LogoStage(canvas)
 
-    let shownLogo: StageLogo | null = null
     const draw = () => {
       const s = useStudio.getState()
-      const logo = s.logo?.processed?.stage ?? null
-      if (logo !== shownLogo) {
-        stage.setLogo(logo)
-        shownLogo = logo
-      }
-      stage.setLogoScale(s.logo?.options.scale ?? 1)
       stage.setSettings(s.settings)
-      if (s.logo) stage.setClip(clipSpecOf(s.logo.options, s.padEnds))
+      stage.setProgram(previewProgram(s))
       stage.renderFrame(s.time)
     }
 
@@ -75,7 +69,13 @@ export function Preview() {
     let frame = requestAnimationFrame(function tick(now) {
       const state = useStudio.getState()
       const { time, loop, setTime, setPlaying } = state
-      const length = playbackLength(state)
+      const length = programLength(previewProgram(state))
+      if (length <= 0) {
+        // Nothing to play yet (no processed logos): idle until there is.
+        last = now
+        frame = requestAnimationFrame(tick)
+        return
+      }
       let next = time + (now - last) / 1000
       last = now
       if (next >= length) {

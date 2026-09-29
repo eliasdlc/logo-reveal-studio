@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { hexToRgb } from './color'
 import type { EffectState } from './effects'
 import { FRAME_HEIGHT, normalizedLogoSize } from './layout'
-import { clipStateAt, type ClipSpec } from './timeline'
+import { programAt, type Program } from './timeline'
 import { DEFAULT_STAGE_SETTINGS, type StageLogo, type StageSettings } from './types'
 
 const FOV = 28
@@ -98,6 +98,18 @@ const RESOLVE_FRAG = /* glsl */ `
   void main() { gl_FragColor = texture2D(source, vUv); }
 `
 
+/** GPU texture for one logo, plus what's needed to size its quad. */
+interface LogoTexture {
+  texture: THREE.DataTexture
+  /** Content aspect ratio (without padding). */
+  aspect: number
+  /** Full texture size relative to its content, per axis (≥ 1 because of the padding). */
+  paddingScale: { x: number; y: number }
+}
+
+/** Current, next and one spare: enough for back-to-back playback without re-uploads. */
+const TEXTURE_CACHE_SIZE = 3
+
 export interface StageOptions {
   /** Keep the canvas contents after compositing (needed to read frames back for export). */
   preserveDrawingBuffer?: boolean
@@ -121,18 +133,13 @@ export class LogoStage {
   private readonly resolveMaterial: THREE.ShaderMaterial
 
   private target: THREE.WebGLRenderTarget | null = null
-  private texture: THREE.DataTexture | null = null
-  /** Content aspect ratio (without padding). */
-  private logoAspect = 1
-  /** Full texture size relative to its content, per axis (≥ 1 because of the padding). */
-  private paddingScale = { x: 1, y: 1 }
-  private logoScale = 1
+  /** Least recently used first. */
+  private readonly textures = new Map<StageLogo, LogoTexture>()
   private width = 0
   private height = 0
 
   private settings: StageSettings = DEFAULT_STAGE_SETTINGS
-  private clip: ClipSpec = { effect: 'swing', duration: 6, lead: 0, tail: 0, exit: false }
-  private hasLogo = false
+  private program: Program<StageLogo> = { items: [] }
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas, options: StageOptions = {}) {
     this.renderer = new THREE.WebGLRenderer({
@@ -225,16 +232,71 @@ export class LogoStage {
     this.background.material.uniforms.color.value.fromArray(hexToRgb(settings.background))
   }
 
-  setClip(clip: ClipSpec): void {
-    this.clip = clip
+  /** What to play: one logo's clip, or several back to back. */
+  setProgram(program: Program<StageLogo>): void {
+    this.program = program
   }
 
-  setLogo(logo: StageLogo | null): void {
-    this.texture?.dispose()
-    this.texture = null
-    this.hasLogo = logo !== null
-    this.logo.material.uniforms.map.value = null
-    if (!logo) return
+  /** Draws the exact state of the scene at program time `t` (seconds). */
+  renderFrame(t: number): void {
+    const frame = programAt(this.program, t)
+    if (frame?.state) {
+      const logo = this.textureFor(frame.item.logo)
+      this.applyState(frame.state, logo, frame.item.scale)
+      // Upload the next logo while this one holds still, so the switch never stalls.
+      const next = this.program.items[frame.index + 1]
+      if (next && frame.local > frame.item.clip.lead + frame.item.clip.duration / 2) {
+        this.renderer.initTexture(this.textureFor(next.logo).texture)
+      }
+    } else {
+      this.applyState(null)
+    }
+    this.draw()
+  }
+
+  dispose(): void {
+    for (const { texture } of this.textures.values()) texture.dispose()
+    this.textures.clear()
+    this.target?.dispose()
+    this.logo.geometry.dispose()
+    for (const mesh of [this.background, this.logo, this.shadow]) mesh.material.dispose()
+    this.resolveMaterial.dispose()
+    this.renderer.dispose()
+  }
+
+  private applyState(state: EffectState | null, logo?: LogoTexture, logoScale = 1): void {
+    this.logo.visible = state !== null
+    this.shadow.visible = state !== null && this.settings.shadow
+    if (!state || !logo) return
+
+    const { paddingScale } = logo
+    const size = normalizedLogoSize(logo.aspect, this.camera.aspect)
+    // w × h is the visible content; the quad is a bit larger to hold the transparent margin.
+    const w = size.width * logoScale * state.scale
+    const h = size.height * logoScale * state.scale
+
+    this.logo.scale.set(w * paddingScale.x, h * paddingScale.y, 1)
+    this.logo.rotation.set(state.rotX * DEG, state.rotY * DEG, 0)
+    const uniforms = this.logo.material.uniforms
+    uniforms.map.value = logo.texture
+    uniforms.opacity.value = state.opacity
+    uniforms.shine.value = state.shine ?? -1
+    uniforms.quadAspect.value = (size.width * paddingScale.x) / (size.height * paddingScale.y)
+
+    // Contact shadow: shrinks and fades as the logo turns away from the camera.
+    const facing = Math.abs(Math.cos(state.rotY * DEG) * Math.cos(state.rotX * DEG))
+    this.shadow.scale.set(w * (0.55 + 0.35 * facing), Math.max(h * 0.12, 0.03 * state.scale), 1)
+    this.shadow.position.set(0, -h / 2 - SHADOW_GAP * state.scale, 0)
+    this.shadow.material.uniforms.strength.value = SHADOW_STRENGTH * state.opacity * facing ** 2
+  }
+
+  private textureFor(logo: StageLogo): LogoTexture {
+    const cached = this.textures.get(logo)
+    if (cached) {
+      this.textures.delete(logo)
+      this.textures.set(logo, cached)
+      return cached
+    }
 
     const { bitmap, padding } = logo
     const texture = new THREE.DataTexture(
@@ -255,54 +317,18 @@ export class LogoStage {
 
     const contentW = bitmap.width - 2 * padding
     const contentH = bitmap.height - 2 * padding
-    this.texture = texture
-    this.logoAspect = contentW / contentH
-    this.paddingScale = { x: bitmap.width / contentW, y: bitmap.height / contentH }
-    this.logo.material.uniforms.map.value = texture
-  }
-
-  /** Manual per-logo size multiplier, on top of the automatic normalization. */
-  setLogoScale(scale: number): void {
-    this.logoScale = scale
-  }
-
-  /** Draws the exact state of the scene at clip time `t` (seconds). */
-  renderFrame(t: number): void {
-    this.applyState(this.hasLogo ? clipStateAt(this.clip, t) : null)
-    this.draw()
-  }
-
-  dispose(): void {
-    this.texture?.dispose()
-    this.target?.dispose()
-    this.logo.geometry.dispose()
-    for (const mesh of [this.background, this.logo, this.shadow]) mesh.material.dispose()
-    this.resolveMaterial.dispose()
-    this.renderer.dispose()
-  }
-
-  private applyState(state: EffectState | null): void {
-    this.logo.visible = state !== null
-    this.shadow.visible = state !== null && this.settings.shadow
-    if (!state) return
-
-    const size = normalizedLogoSize(this.logoAspect, this.camera.aspect)
-    // w × h is the visible content; the quad is a bit larger to hold the transparent margin.
-    const w = size.width * this.logoScale * state.scale
-    const h = size.height * this.logoScale * state.scale
-
-    this.logo.scale.set(w * this.paddingScale.x, h * this.paddingScale.y, 1)
-    this.logo.rotation.set(state.rotX * DEG, state.rotY * DEG, 0)
-    const uniforms = this.logo.material.uniforms
-    uniforms.opacity.value = state.opacity
-    uniforms.shine.value = state.shine ?? -1
-    uniforms.quadAspect.value = (size.width * this.paddingScale.x) / (size.height * this.paddingScale.y)
-
-    // Contact shadow: shrinks and fades as the logo turns away from the camera.
-    const facing = Math.abs(Math.cos(state.rotY * DEG) * Math.cos(state.rotX * DEG))
-    this.shadow.scale.set(w * (0.55 + 0.35 * facing), Math.max(h * 0.12, 0.03 * state.scale), 1)
-    this.shadow.position.set(0, -h / 2 - SHADOW_GAP * state.scale, 0)
-    this.shadow.material.uniforms.strength.value = SHADOW_STRENGTH * state.opacity * facing ** 2
+    const entry: LogoTexture = {
+      texture,
+      aspect: contentW / contentH,
+      paddingScale: { x: bitmap.width / contentW, y: bitmap.height / contentH },
+    }
+    this.textures.set(logo, entry)
+    while (this.textures.size > TEXTURE_CACHE_SIZE) {
+      const [oldest, old] = this.textures.entries().next().value!
+      old.texture.dispose()
+      this.textures.delete(oldest)
+    }
+    return entry
   }
 
   private draw(): void {

@@ -58,3 +58,61 @@ export function clipSegments(clip: ClipSpec, entryDuration: number): ClipSegment
   push('empty', logoEnd, clipLength(clip))
   return segments
 }
+
+// ─── Programs: clips played back to back ────────────────────────────────────
+
+/** One logo's clip inside a program. */
+export interface ProgramItem<Logo = unknown> {
+  logo: Logo
+  /** Manual per-logo scale. */
+  scale: number
+  clip: ClipSpec
+}
+
+/**
+ * What a video shows: its items one after another, no overlap. An individual video is a
+ * one-item program; the combined sequence has one item per logo, each exiting before the
+ * next one enters.
+ */
+export interface Program<Logo = unknown> {
+  items: ProgramItem<Logo>[]
+}
+
+export const programLength = (program: Program): number =>
+  program.items.reduce((sum, item) => sum + clipLength(item.clip), 0)
+
+export interface ProgramFrame<Logo> {
+  index: number
+  item: ProgramItem<Logo>
+  /** Time inside the item's clip. */
+  local: number
+  state: EffectState | null
+}
+
+/** Which item is on screen at program time `t`, and its pose. Null for an empty program. */
+export function programAt<Logo>(program: Program<Logo>, t: number): ProgramFrame<Logo> | null {
+  const { items } = program
+  if (items.length === 0) return null
+  let start = 0
+  for (let index = 0; index < items.length; index++) {
+    const length = clipLength(items[index].clip)
+    // Boundaries belong to the next item; the very end belongs to the last one.
+    if (t < start + length || index === items.length - 1) {
+      const local = t - start
+      return { index, item: items[index], local, state: clipStateAt(items[index].clip, local) }
+    }
+    start += length
+  }
+  return null
+}
+
+/** Start time of each item. */
+export function programStarts(program: Program): number[] {
+  const starts: number[] = []
+  let start = 0
+  for (const item of program.items) {
+    starts.push(start)
+    start += clipLength(item.clip)
+  }
+  return starts
+}

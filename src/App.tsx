@@ -6,19 +6,19 @@ import { useLogoProcessing } from './state/useLogoProcessing'
 import { DEMO_LOGO_SVG } from './ui/demoLogo'
 import { ExportPanel } from './ui/ExportPanel'
 import { Preview } from './ui/Preview'
+import { PreviewModeBar } from './ui/PreviewModeBar'
 import { Sidebar } from './ui/Sidebar'
 import { Transport } from './ui/Transport'
 
-
 export default function App() {
-  const loadLogo = useStudio((s) => s.loadLogo)
+  const addLogos = useStudio((s) => s.addLogos)
   useLogoProcessing()
 
   useEffect(() => {
     void decodeSvg(DEMO_LOGO_SVG).then((source) => {
-      if (!useStudio.getState().logo) loadLogo('Logo de ejemplo', source)
+      if (useStudio.getState().logos.length === 0) addLogos([{ name: 'Logo de ejemplo', source }], { demo: true })
     })
-  }, [loadLogo])
+  }, [addLogos])
 
   return (
     <div className="flex h-screen flex-col bg-neutral-950 text-neutral-100">
@@ -37,6 +37,7 @@ export default function App() {
         <Sidebar />
         <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 overflow-auto p-8">
           <div className="flex w-full max-w-5xl flex-col gap-4">
+            <PreviewModeBar />
             <Preview />
             <Transport />
             <ExportPanel />
