@@ -21,21 +21,24 @@ export const easeOutCubic: Easing = (x) => 1 - (1 - x) ** 3
 export const easeOutBack =
   (overshoot = 1.70158): Easing =>
   (x) => {
+    if (x <= 0) return 0
+    if (x >= 1) return 1
     const c3 = overshoot + 1
     return 1 + c3 * (x - 1) ** 3 + overshoot * (x - 1) ** 2
   }
 
-const elastic: Easing = (x) => {
-  if (x <= 0) return 0
-  if (x >= 1) return 1
-  return 1 + 2 ** (-10 * x) * Math.sin(((x * 10 - 0.75) * (2 * Math.PI)) / 3)
-}
+export const easeInOutCubic: Easing = (x) =>
+  x < 0.5 ? 4 * x ** 3 : 1 - (-2 * x + 2) ** 3 / 2
 
 /**
- * Damped spring that starts at 0 and lands exactly on 1. `bounciness` blends between
- * a plain easeOutCubic (0) and the classic elastic curve (1), so lower = softer.
+ * Soft damped spring: rises past 1, wobbles back and lands exactly on 1 at x = 1.
+ * `damping` controls how quickly the wobble dies (higher = less overshoot, ~8% at 5),
+ * `oscillations` how many wobble cycles fit in the window.
  */
 export const easeOutElastic =
-  (bounciness = 1): Easing =>
-  (x) =>
-    lerp(easeOutCubic(clamp01(x)), elastic(x), bounciness)
+  (damping = 5, oscillations = 1.25): Easing =>
+  (x) => {
+    if (x <= 0) return 0
+    if (x >= 1) return 1
+    return 1 - Math.exp(-damping * x) * Math.cos(2 * Math.PI * oscillations * x) * (1 - x)
+  }

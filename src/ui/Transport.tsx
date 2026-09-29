@@ -1,9 +1,11 @@
-import { CLIP_DURATION, useStudio } from '../state/store'
+import { CLIP_DURATION, entryDurationOf, useStudio } from '../state/store'
 
 const FRAME = 1 / 60
 
 export function Transport() {
   const { time, playing, loop, setTime, setPlaying, setLoop } = useStudio()
+  const options = useStudio((s) => s.logo?.options)
+  const entry = options ? Math.min(entryDurationOf(options), CLIP_DURATION) : 0
 
   const togglePlay = () => {
     if (!playing && time >= CLIP_DURATION) setTime(0)
@@ -30,19 +32,30 @@ export function Transport() {
         )}
       </button>
 
-      <input
-        type="range"
-        min={0}
-        max={CLIP_DURATION}
-        step={FRAME}
-        value={time}
-        onChange={(e) => {
-          setPlaying(false)
-          setTime(Number(e.target.value))
-        }}
-        className="h-1 w-full cursor-pointer accent-white"
-        aria-label="Tiempo"
-      />
+      <div className="flex w-full flex-col gap-2">
+        <input
+          type="range"
+          min={0}
+          max={CLIP_DURATION}
+          step={FRAME}
+          value={time}
+          onChange={(e) => {
+            setPlaying(false)
+            setTime(Number(e.target.value))
+          }}
+          className="h-1 w-full cursor-pointer accent-white"
+          aria-label="Tiempo"
+        />
+        {/* Where the entry ends and the hold begins. */}
+        <div className="flex h-1 w-full overflow-hidden rounded-full">
+          <div className="bg-sky-400/70" style={{ width: `${(entry / CLIP_DURATION) * 100}%` }} title="Entrada" />
+          <div className="flex-1 bg-white/15" title="Hold" />
+        </div>
+        <div className="flex justify-between text-[10px] text-neutral-500">
+          <span>Entrada {entry.toFixed(2)} s</span>
+          <span>Hold {(CLIP_DURATION - entry).toFixed(2)} s</span>
+        </div>
+      </div>
 
       <span className="w-24 shrink-0 text-right font-mono text-xs tabular-nums text-neutral-400">
         {time.toFixed(2)} / {CLIP_DURATION.toFixed(2)} s

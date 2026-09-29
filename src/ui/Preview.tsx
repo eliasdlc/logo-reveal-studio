@@ -26,7 +26,7 @@ export function Preview() {
       }
       stage.setLogoScale(s.logo?.options.scale ?? 1)
       stage.setSettings(s.settings)
-      stage.setEffect(s.effect)
+      if (s.logo) stage.setEffect(s.logo.options.effect, s.logo.options.entryDuration ?? undefined)
       stage.renderFrame(s.time)
     }
 

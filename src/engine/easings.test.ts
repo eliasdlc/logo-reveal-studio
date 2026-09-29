@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { clamp01, easeOutBack, easeOutCubic, easeOutElastic, linear, progress } from './easings'
+import { clamp01, easeInOutCubic, easeOutBack, easeOutCubic, easeOutElastic, linear, progress } from './easings'
 
 const curves = {
   linear,
   easeOutCubic,
   easeOutBack: easeOutBack(1.2),
-  easeOutElastic: easeOutElastic(0.5),
+  easeInOutCubic,
+  easeOutElastic: easeOutElastic(),
 }
 
 describe('easings', () => {
@@ -31,8 +32,18 @@ describe('easings', () => {
     expect(peak).toBeLessThan(1.1)
   })
 
-  it('easeOutElastic with bounciness 0 is plain easeOutCubic', () => {
-    for (const x of [0.1, 0.3, 0.7]) expect(easeOutElastic(0)(x)).toBeCloseTo(easeOutCubic(x))
+  it('easeOutElastic overshoots softly and settles', () => {
+    const f = easeOutElastic()
+    const samples = Array.from({ length: 201 }, (_, i) => f(i / 200))
+    const peak = Math.max(...samples)
+    expect(peak).toBeGreaterThan(1.03)
+    expect(peak).toBeLessThan(1.12)
+    expect(Math.abs(f(0.95) - 1)).toBeLessThan(0.01)
+  })
+
+  it('easeInOutCubic is symmetric', () => {
+    expect(easeInOutCubic(0.5)).toBeCloseTo(0.5)
+    expect(easeInOutCubic(0.25)).toBeCloseTo(1 - easeInOutCubic(0.75))
   })
 })
 

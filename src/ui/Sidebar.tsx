@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { ACCEPTED_TYPES, decodeFile } from '../processing/decode'
-import { useStudio, type Resolution } from '../state/store'
+import { EFFECTS, EFFECT_IDS } from '../engine/effects'
+import { CLIP_DURATION, entryDurationOf, useStudio, type Resolution } from '../state/store'
 import { Thumbnail } from './Thumbnail'
 
 export function Sidebar() {
@@ -104,6 +105,7 @@ function LogoPanel() {
   const logo = useStudio((s) => s.logo)
   const resolution = useStudio((s) => s.resolution)
   const updateLogoOptions = useStudio((s) => s.updateLogoOptions)
+  const setLogoEffect = useStudio((s) => s.setLogoEffect)
   if (!logo) return null
 
   const { options, processed } = logo
@@ -116,6 +118,34 @@ function LogoPanel() {
       <p className="truncate text-sm text-neutral-200" title={logo.name}>
         {logo.name}
       </p>
+
+      <div className="grid grid-cols-3 gap-1 rounded-md bg-black/40 p-1" role="radiogroup" aria-label="Efecto">
+        {EFFECT_IDS.map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="radio"
+            aria-checked={options.effect === id}
+            title={EFFECTS[id].description}
+            onClick={() => setLogoEffect(id)}
+            className={`rounded px-1.5 py-1.5 text-xs transition ${
+              options.effect === id ? 'bg-white text-neutral-900' : 'text-neutral-400 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            {EFFECTS[id].label}
+          </button>
+        ))}
+      </div>
+      <Slider
+        label="Duración de entrada"
+        value={entryDurationOf(options)}
+        min={0.5}
+        max={Math.min(3, CLIP_DURATION - 1)}
+        step={0.05}
+        format={(v) => `${v.toFixed(2)} s`}
+        onChange={(entryDuration) => updateLogoOptions({ entryDuration })}
+        onReset={() => updateLogoOptions({ entryDuration: null })}
+      />
 
       {logo.error && <Notice tone="error">{logo.error}</Notice>}
 

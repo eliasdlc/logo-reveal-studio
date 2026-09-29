@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { EffectId } from '../engine/effects'
+import { EFFECTS, type EffectId } from '../engine/effects'
 import { DEFAULT_STAGE_SETTINGS, type StageSettings } from '../engine/types'
 import type { LogoSource } from '../processing/decode'
 import type { ProcessedLogo } from '../processing/pipeline'
@@ -11,6 +11,9 @@ export const CLIP_DURATION = 6
 export type Resolution = 1080 | 2160
 
 export interface LogoOptions {
+  effect: EffectId
+  /** Seconds the entry lasts; null = the effect's natural length. */
+  entryDuration: number | null
   removeWhite: boolean
   whiteThreshold: number
   removeEnclosedWhite: boolean
@@ -19,11 +22,17 @@ export interface LogoOptions {
 }
 
 export const DEFAULT_LOGO_OPTIONS: LogoOptions = {
+  effect: 'swing',
+  entryDuration: null,
   removeWhite: false,
   whiteThreshold: DEFAULT_WHITE_THRESHOLD,
   removeEnclosedWhite: false,
   scale: 1,
 }
+
+/** Seconds until the logo is at rest; the hold is the rest of the clip. */
+export const entryDurationOf = (options: LogoOptions): number =>
+  options.entryDuration ?? EFFECTS[options.effect].entryDuration
 
 export interface LogoItem {
   id: string
@@ -36,7 +45,6 @@ export interface LogoItem {
 
 interface StudioState {
   logo: LogoItem | null
-  effect: EffectId
   settings: StageSettings
   resolution: Resolution
   playing: boolean
@@ -45,6 +53,7 @@ interface StudioState {
 
   loadLogo: (name: string, source: LogoSource) => void
   updateLogoOptions: (patch: Partial<LogoOptions>) => void
+  setLogoEffect: (effect: EffectId) => void
   setProcessed: (id: string, result: { processed: ProcessedLogo } | { error: string }) => void
   updateSettings: (patch: Partial<StageSettings>) => void
   setResolution: (resolution: Resolution) => void
@@ -55,7 +64,6 @@ interface StudioState {
 
 export const useStudio = create<StudioState>()((set) => ({
   logo: null,
-  effect: 'swing',
   settings: DEFAULT_STAGE_SETTINGS,
   resolution: 1080,
   playing: true,
@@ -69,6 +77,10 @@ export const useStudio = create<StudioState>()((set) => ({
     }),
   updateLogoOptions: (patch) =>
     set((s) => (s.logo ? { logo: { ...s.logo, options: { ...s.logo.options, ...patch } } } : {})),
+  setLogoEffect: (effect) =>
+    set((s) =>
+      s.logo ? { logo: { ...s.logo, options: { ...s.logo.options, effect, entryDuration: null } }, time: 0 } : {},
+    ),
   setProcessed: (id, result) =>
     set((s) => {
       if (s.logo?.id !== id) return {}

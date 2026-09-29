@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { hexToRgb } from './color'
-import { EFFECTS, type EffectId, type EffectState } from './effects'
+import { evaluateEffect, type EffectId, type EffectState } from './effects'
 import { FRAME_HEIGHT, normalizedLogoSize } from './layout'
 import { DEFAULT_STAGE_SETTINGS, type StageLogo, type StageSettings } from './types'
 
@@ -50,15 +50,33 @@ const BACKGROUND_FRAG = /* glsl */ `
   void main() { gl_FragColor = vec4(color, 1.0); }
 `
 
+/*
+ * The shine is a soft diagonal band of white mixed into the logo's own color, so it
+ * inherits the logo's alpha: it only ever shows on the logo, never on the background.
+ * With shine < 0 the shader returns the texture untouched.
+ */
 const LOGO_FRAG = /* glsl */ `
   uniform sampler2D map;
   uniform float opacity;
+  uniform float shine;
+  uniform float quadAspect;
   varying vec2 vUv;
   ${SRGB_ENCODE}
+  const float SLANT = 0.8;
+  const float BAND = 0.22;
+  const float STRENGTH = 0.55;
   void main() {
     // Bitmaps are stored top row first, so flip V instead of re-uploading flipped.
     vec4 tex = texture2D(map, vec2(vUv.x, 1.0 - vUv.y));
-    gl_FragColor = vec4(linearToSrgb(tex.rgb), tex.a * opacity);
+    vec3 color = linearToSrgb(tex.rgb);
+    if (shine >= 0.0) {
+      // Distance along a "/" diagonal, in units of the quad height; sweeps left to right.
+      float s = vUv.x * quadAspect - vUv.y * SLANT;
+      float center = mix(-SLANT - 3.0 * BAND, quadAspect + 3.0 * BAND, shine);
+      float d = (s - center) / BAND;
+      color = mix(color, vec3(1.0), STRENGTH * exp(-d * d));
+    }
+    gl_FragColor = vec4(color, tex.a * opacity);
   }
 `
 
@@ -112,6 +130,7 @@ export class LogoStage {
 
   private settings: StageSettings = DEFAULT_STAGE_SETTINGS
   private effect: EffectId = 'swing'
+  private entryDuration: number | undefined
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas, options: StageOptions = {}) {
     this.renderer = new THREE.WebGLRenderer({
@@ -165,7 +184,7 @@ export class LogoStage {
         transparent: true,
         vertexShader: MESH_VERT,
         fragmentShader: LOGO_FRAG,
-        uniforms: { map: { value: null }, opacity: { value: 1 } },
+        uniforms: { map: { value: null }, opacity: { value: 1 }, shine: { value: -1 }, quadAspect: { value: 1 } },
       }),
     )
     this.logo.renderOrder = 2
@@ -204,8 +223,10 @@ export class LogoStage {
     this.background.material.uniforms.color.value.fromArray(hexToRgb(settings.background))
   }
 
-  setEffect(effect: EffectId): void {
+  /** `entryDuration` stretches the whole entry to that many seconds (default: natural length). */
+  setEffect(effect: EffectId, entryDuration?: number): void {
     this.effect = effect
+    this.entryDuration = entryDuration
   }
 
   setLogo(logo: StageLogo | null): void {
@@ -247,7 +268,7 @@ export class LogoStage {
 
   /** Draws the exact state of the scene at clip time `t` (seconds). */
   renderFrame(t: number): void {
-    this.applyState(EFFECTS[this.effect].evaluate(t))
+    this.applyState(evaluateEffect(this.effect, t, this.entryDuration))
     this.draw()
   }
 
@@ -268,7 +289,10 @@ export class LogoStage {
 
     this.logo.scale.set(w * this.paddingScale.x, h * this.paddingScale.y, 1)
     this.logo.rotation.set(state.rotX * DEG, state.rotY * DEG, 0)
-    this.logo.material.uniforms.opacity.value = state.opacity
+    const uniforms = this.logo.material.uniforms
+    uniforms.opacity.value = state.opacity
+    uniforms.shine.value = state.shine ?? -1
+    uniforms.quadAspect.value = (size.width * this.paddingScale.x) / (size.height * this.paddingScale.y)
 
     // Contact shadow: shrinks and fades as the logo turns away from the camera.
     const facing = Math.abs(Math.cos(state.rotY * DEG) * Math.cos(state.rotX * DEG))

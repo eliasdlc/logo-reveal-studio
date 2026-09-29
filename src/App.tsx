@@ -23,7 +23,6 @@ export default function App() {
     <div className="flex h-screen flex-col bg-neutral-950 text-neutral-100">
       <header className="flex items-center justify-between border-b border-white/10 px-5 py-3">
         <h1 className="text-sm font-semibold tracking-wide">Logo Reveal Studio</h1>
-        <span className="text-xs text-neutral-500">Efecto: Swing</span>
       </header>
 
       {!hasWebCodecs && (
