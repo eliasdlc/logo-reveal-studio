@@ -17,7 +17,11 @@ npm run lint
 npm run build
 ```
 
-Requiere Chrome o Edge de escritorio (WebCodecs para exportar).
+Requiere Node 20.19 o superior, y Chrome o Edge de escritorio (WebCodecs para exportar).
+
+Si actualizas el código (`git pull`) y se agregó una dependencia, `npm run dev`, `build` y
+`test` corren `npm install` solos antes de arrancar (`scripts/ensure-deps.mjs`), en vez de
+fallar con «Failed to resolve import».
 
 ## Animación
 
@@ -80,6 +84,9 @@ Tres salidas, cada una idéntica a lo que muestra el preview en el modo correspo
   transición elegida.
 
 
+- Si el navegador no puede codificar H.264 (algunas compilaciones de Chromium en Linux), el
+  export sale en WebM (VP9) y la app lo avisa: se ve en navegadores y VLC, pero no en
+  PowerPoint ni QuickTime.
 - Frame por frame (`t = i / fps`), nunca en tiempo real: el video sale igual aunque la
   PC sea lenta, y cada frame es exactamente el del preview.
 - H.264 8-bit 4:2:0 con el nivel correcto para tamaño **y** fps (1080p30 → 4.0,

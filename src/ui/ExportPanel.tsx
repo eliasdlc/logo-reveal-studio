@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react'
-import type { VideoFormat } from '../export/codec'
-import { hasWebCodecs } from '../export/codec'
+import { useEffect, useRef, useState } from 'react'
+import type { CodecChoice, VideoFormat } from '../export/codec'
+import { chooseCodec, hasWebCodecs } from '../export/codec'
 import { baseName, downloadBlob } from '../export/download'
-import { exportProgramMp4, programFrameCount, requireCodec } from '../export/exportProgram'
+import { exportProgramVideo, programFrameCount, requireCodec } from '../export/exportProgram'
 import { numberedNames, zipFiles } from '../export/zip'
 import { logoIssues } from '../state/issues'
 import { fullSequenceProgram, individualProgram } from '../state/program'
@@ -28,7 +28,11 @@ const suffixOf = (s: State) => `_${s.resolution}p${s.fps}`
 export function ExportPanel() {
   const selectedReady = useStudio((s) => selectedLogo(s)?.processed != null)
   const logos = useStudio((s) => s.logos)
+  const resolution = useStudio((s) => s.resolution)
+  const fps = useStudio((s) => s.fps)
   const [status, setStatus] = useState<ExportStatus>({ kind: 'idle' })
+  // What the browser will encode with at the current settings (undefined while checking).
+  const [codec, setCodec] = useState<CodecChoice | null | undefined>(undefined)
   const abortRef = useRef<AbortController | null>(null)
   const running = status.kind === 'running'
 
@@ -37,6 +41,16 @@ export function ExportPanel() {
   const ready = statuses.filter((s) => s !== 'processing' && s !== 'error').length
   const failed = statuses.filter((s) => s === 'error').length
   const canExport = hasWebCodecs() && !running
+
+  useEffect(() => {
+    let cancelled = false
+    void chooseCodec({ width: (resolution * 16) / 9, height: resolution, fps }).then((choice) => {
+      if (!cancelled) setCodec(choice)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [resolution, fps])
 
   /** Runs one export task with progress, cancel and download handling. */
   const run = async (task: string, work: (signal: AbortSignal, report: Report) => Promise<{ blob: Blob; fileName: string }>) => {
@@ -76,14 +90,12 @@ export function ExportPanel() {
       const logo = selectedLogo(s)
       const program = logo && individualProgram(logo, s.animation, s.padEnds)
       if (!logo || !program?.items.length) throw new Error('El logo todavía no está listo.')
-      const blob = await exportProgramMp4({
-        program,
-        settings: s.settings,
-        format: formatOf(s),
-        signal,
-        onProgress: (done, total) => report(done, total),
-      })
-      return { blob, fileName: `${baseName(logo.name)}${suffixOf(s)}.mp4` }
+      const codec = await requireCodec(formatOf(s))
+      const blob = await exportProgramVideo(
+        { program, settings: s.settings, format: formatOf(s), signal, onProgress: (done, total) => report(done, total) },
+        codec,
+      )
+      return { blob, fileName: `${baseName(logo.name)}${suffixOf(s)}.${codec.container}` }
     })
 
   const exportAllZip = () =>
@@ -98,7 +110,7 @@ export function ExportPanel() {
       if (jobs.length === 0) throw new Error('No hay logos listos para exportar.')
       const names = numberedNames(
         jobs.map((j) => baseName(j.logo.name)),
-        `${suffixOf(s)}.mp4`,
+        `${suffixOf(s)}.${codec.container}`,
       )
       const total = jobs.reduce((sum, j) => sum + programFrameCount(j.program, format.fps), 0)
       let offset = 0
@@ -106,7 +118,7 @@ export function ExportPanel() {
       for (const [i, job] of jobs.entries()) {
         const detail = `Logo ${i + 1} de ${jobs.length}: ${job.logo.name}`
         report(offset, total, detail)
-        const blob = await exportProgramMp4(
+        const blob = await exportProgramVideo(
           { program: job.program, settings: s.settings, format, signal, onProgress: (done) => report(offset + done, total) },
           codec,
         )
@@ -121,14 +133,12 @@ export function ExportPanel() {
     run('Secuencia completa', async (signal, report) => {
       const s = useStudio.getState()
       const program = fullSequenceProgram(s.logos, s.animation, s.sequence)
-      const blob = await exportProgramMp4({
-        program,
-        settings: s.settings,
-        format: formatOf(s),
-        signal,
-        onProgress: (done, total) => report(done, total),
-      })
-      return { blob, fileName: `secuencia-${program.items.length}-logos${suffixOf(s)}.mp4` }
+      const codec = await requireCodec(formatOf(s))
+      const blob = await exportProgramVideo(
+        { program, settings: s.settings, format: formatOf(s), signal, onProgress: (done, total) => report(done, total) },
+        codec,
+      )
+      return { blob, fileName: `secuencia-${program.items.length}-logos${suffixOf(s)}.${codec.container}` }
     })
 
   const batchDisabled = !canExport || processing || ready === 0
@@ -156,7 +166,7 @@ export function ExportPanel() {
           </button>
         )}
       </div>
-      <StatusLine status={status} />
+      <StatusLine status={status} codec={codec} />
       {running && <ProgressBar value={status.done / status.total} />}
       {!running && failed > 0 && (
         <p className="text-xs text-amber-200">
@@ -192,10 +202,25 @@ function ExportButton(props: {
   )
 }
 
-function StatusLine({ status }: { status: ExportStatus }) {
+function StatusLine({ status, codec }: { status: ExportStatus; codec: CodecChoice | null | undefined }) {
   const base = 'min-w-0 truncate text-xs'
   switch (status.kind) {
     case 'idle':
+      if (codec?.container === 'webm') {
+        return (
+          <span className={`${base} whitespace-normal text-amber-200`}>
+            Este navegador no puede codificar H.264: los videos saldrán en WebM (VP9), que PowerPoint y QuickTime
+            no abren. Para MP4 usa Google Chrome o Edge.
+          </span>
+        )
+      }
+      if (codec === null && hasWebCodecs()) {
+        return (
+          <span className={`${base} whitespace-normal text-amber-200`}>
+            Este navegador no puede codificar video a esta resolución y fps. Prueba con valores más bajos.
+          </span>
+        )
+      }
       return <span className={`${base} text-neutral-500`}>MP4 H.264 · se descarga al terminar</span>
     case 'running':
       return (

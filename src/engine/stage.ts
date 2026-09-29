@@ -323,6 +323,16 @@ export class LogoStage {
     this.swarm.geometry.dispose()
     this.resolveMaterial.dispose()
     this.renderer.dispose()
+    // Release the WebGL context now instead of waiting for garbage collection: browsers
+    // allow ~16 live contexts and, past that, kill the oldest one (the preview's).
+    this.renderer.forceContextLoss()
+  }
+
+  /** Fires once if the GPU context is lost (driver reset, too many contexts…). */
+  onContextLost(callback: () => void): () => void {
+    const canvas = this.renderer.domElement
+    canvas.addEventListener('webglcontextlost', callback)
+    return () => canvas.removeEventListener('webglcontextlost', callback)
   }
 
   // ─── Drawing ──────────────────────────────────────────────────────────────

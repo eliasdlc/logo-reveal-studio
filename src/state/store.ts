@@ -89,6 +89,14 @@ interface StudioState {
   setTime: (time: number) => void
 }
 
+let idCounter = 0
+/**
+ * Unique id. crypto.randomUUID only exists in secure contexts (https or localhost), so
+ * opening the dev server from another device by IP would otherwise break uploads.
+ */
+const newId = (): string =>
+  globalThis.crypto?.randomUUID?.() ?? `logo-${Date.now().toString(36)}-${(idCounter++).toString(36)}`
+
 const updateLogo = (logos: LogoItem[], id: string, update: (logo: LogoItem) => LogoItem) =>
   logos.map((logo) => (logo.id === id ? update(logo) : logo))
 
@@ -115,7 +123,7 @@ export const useStudio = create<StudioState>()((set) => ({
     set((s) => {
       if (entries.length === 0) return {}
       const added: LogoItem[] = entries.map(({ name, source }) => ({
-        id: crypto.randomUUID(),
+        id: newId(),
         name,
         source,
         options: DEFAULT_LOGO_OPTIONS,

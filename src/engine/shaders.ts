@@ -225,7 +225,10 @@ export const LOGO_FRAG = /* glsl */ `
       at = u + d * (1.0 - revealA.z) * span;
       motion += d * revealA.w * span;
       float along = dot(content - 0.5, d) + 0.5;
-      mask = clamp(along / max(fwidth(along), 1e-6) + 0.5, 0.0, 1.0);
+      // Screen-space footprint of 'along' from the derivatives taken outside any branch
+      // (derivatives inside flow control fail to compile on some Windows drivers).
+      float footprint = abs(dot(dx / span, d)) + abs(dot(dy / span, d));
+      mask = clamp(along / max(footprint, 1e-6) + 0.5, 0.0, 1.0);
     } else if (revealKind == 2) {
       // Wipe: a soft edge travels along the direction.
       vec2 d = revealA.xy;

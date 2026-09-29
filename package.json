@@ -3,10 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
   "scripts": {
+    "predev": "node scripts/ensure-deps.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/ensure-deps.mjs",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "pretest": "node scripts/ensure-deps.mjs",
     "test": "vitest run",
     "typecheck": "tsc -b",
     "preview": "vite preview"

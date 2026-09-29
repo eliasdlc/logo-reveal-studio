@@ -1,4 +1,4 @@
-import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality } from 'mediabunny'
+import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality, WebMOutputFormat } from 'mediabunny'
 import type { CodecChoice, VideoFormat } from './codec'
 
 export interface EncodeJob {
@@ -20,19 +20,20 @@ export const frameCountFor = (duration: number, fps: number): number => Math.rou
  * Renders and encodes the video frame by frame (t = i / fps), never in real time: however
  * slow the machine, every frame is exactly the one the preview shows at that time.
  */
-export async function encodeMp4(job: EncodeJob): Promise<Blob> {
+export async function encodeVideo(job: EncodeJob): Promise<Blob> {
   const { fps } = job.format
+  const { container } = job.codec
   const total = frameCountFor(job.duration, fps)
   const target = new BufferTarget()
   const output = new Output({
     // moov before mdat: QuickTime, PowerPoint and web players can start without seeking.
-    format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
+    format: container === 'mp4' ? new Mp4OutputFormat({ fastStart: 'in-memory' }) : new WebMOutputFormat(),
     target,
   })
   const source = new CanvasSource(job.canvas, {
-    codec: 'avc',
+    codec: container === 'mp4' ? 'avc' : 'vp9',
     fullCodecString: job.codec.codec,
-    quality: new Quality({ quantizer: 18, bitrate: job.codec.bitrate }),
+    quality: new Quality({ quantizer: job.codec.quantizer, bitrate: job.codec.bitrate }),
     keyFrameInterval: 1,
     latencyMode: 'quality',
   })
@@ -55,5 +56,5 @@ export async function encodeMp4(job: EncodeJob): Promise<Blob> {
     throw error
   }
 
-  return new Blob([target.buffer!], { type: 'video/mp4' })
+  return new Blob([target.buffer!], { type: `video/${container}` })
 }

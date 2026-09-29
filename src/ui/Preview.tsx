@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LogoStage } from '../engine/stage'
 import { programLength } from '../engine/timeline'
 import { previewProgram } from '../state/program'
@@ -8,6 +8,8 @@ import { useStudio } from '../state/store'
 export function Preview() {
   const containerRef = useRef<HTMLDivElement>(null)
   const playing = useStudio((s) => s.playing)
+  // Bumped when the GPU context is lost, to start over with a fresh canvas and stage.
+  const [generation, setGeneration] = useState(0)
 
   useEffect(() => {
     const container = containerRef.current!
@@ -16,6 +18,7 @@ export function Preview() {
     canvas.className = 'absolute inset-0 h-full w-full'
     container.appendChild(canvas)
     const stage = new LogoStage(canvas)
+    const stopWatchingContext = stage.onContextLost(() => setGeneration((g) => g + 1))
 
     const draw = () => {
       const s = useStudio.getState()
@@ -54,13 +57,14 @@ export function Preview() {
     watchDpr()
 
     return () => {
+      stopWatchingContext()
       dprQuery?.removeEventListener('change', onDprChange)
       unsubscribe()
       resize.disconnect()
       stage.dispose()
       canvas.remove()
     }
-  }, [])
+  }, [generation])
 
   // Playback clock: only advances `time`; drawing happens through the store subscription.
   useEffect(() => {
