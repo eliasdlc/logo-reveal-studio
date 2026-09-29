@@ -1,13 +1,15 @@
 import { useState, type ReactNode } from 'react'
 import { ACCEPTED_TYPES, decodeFile } from '../processing/decode'
 import { EFFECTS, EFFECT_IDS } from '../engine/effects'
-import { CLIP_DURATION, entryDurationOf, useStudio, type Resolution } from '../state/store'
+import { CLIP_DURATION, PAD_SECONDS, entryDurationOf, useStudio, type Fps, type Resolution } from '../state/store'
 import { Thumbnail } from './Thumbnail'
 
 export function Sidebar() {
   const settings = useStudio((s) => s.settings)
   const resolution = useStudio((s) => s.resolution)
-  const { updateSettings, setResolution } = useStudio.getState()
+  const fps = useStudio((s) => s.fps)
+  const padEnds = useStudio((s) => s.padEnds)
+  const { updateSettings, setResolution, setFps, setPadEnds } = useStudio.getState()
 
   return (
     <aside className="flex w-80 shrink-0 flex-col gap-6 overflow-y-auto border-r border-white/10 bg-neutral-950 p-5">
@@ -33,7 +35,10 @@ export function Sidebar() {
             className="accent-white"
           />
         </Row>
-        <Row label="Resolución de export">
+      </Section>
+
+      <Section title="Export">
+        <Row label="Resolución">
           <select
             value={resolution}
             onChange={(e) => setResolution(Number(e.target.value) as Resolution)}
@@ -43,6 +48,30 @@ export function Sidebar() {
             <option value={2160}>3840 × 2160 (4K)</option>
           </select>
         </Row>
+        <Row label="Fotogramas por segundo">
+          <select
+            value={fps}
+            onChange={(e) => setFps(Number(e.target.value) as Fps)}
+            className="rounded border border-white/20 bg-neutral-900 px-2 py-1 text-sm"
+          >
+            <option value={30}>30 fps</option>
+            <option value={60}>60 fps</option>
+          </select>
+        </Row>
+        <Row label={`${PAD_SECONDS} s de fondo vacío al inicio y al final`}>
+          <input
+            type="checkbox"
+            checked={padEnds}
+            onChange={(e) => setPadEnds(e.target.checked)}
+            className="accent-white"
+          />
+        </Row>
+        {padEnds && (
+          <p className="text-xs leading-relaxed text-neutral-500">
+            Con el margen, el logo sale con un fundido antes del fondo final para que el video no
+            corte de golpe.
+          </p>
+        )}
       </Section>
     </aside>
   )

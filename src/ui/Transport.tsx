@@ -1,14 +1,28 @@
-import { CLIP_DURATION, entryDurationOf, useStudio } from '../state/store'
+import { clipSegments, type ClipSegment } from '../engine/timeline'
+import { clipSpecOf, entryDurationOf, playbackLength, useStudio } from '../state/store'
 
 const FRAME = 1 / 60
 
+const SEGMENT_STYLE: Record<ClipSegment['kind'], { className: string; label: string }> = {
+  empty: { className: 'bg-white/5', label: 'Vacío' },
+  entry: { className: 'bg-sky-400/70', label: 'Entrada' },
+  hold: { className: 'bg-white/20', label: 'Hold' },
+  exit: { className: 'bg-violet-400/60', label: 'Salida' },
+}
+
 export function Transport() {
-  const { time, playing, loop, setTime, setPlaying, setLoop } = useStudio()
-  const options = useStudio((s) => s.logo?.options)
-  const entry = options ? Math.min(entryDurationOf(options), CLIP_DURATION) : 0
+  const time = useStudio((s) => s.time)
+  const playing = useStudio((s) => s.playing)
+  const loop = useStudio((s) => s.loop)
+  const logo = useStudio((s) => s.logo)
+  const padEnds = useStudio((s) => s.padEnds)
+  const { setTime, setPlaying, setLoop } = useStudio.getState()
+
+  const length = playbackLength({ logo, padEnds })
+  const segments = logo ? clipSegments(clipSpecOf(logo.options, padEnds), entryDurationOf(logo.options)) : []
 
   const togglePlay = () => {
-    if (!playing && time >= CLIP_DURATION) setTime(0)
+    if (!playing && time >= length) setTime(0)
     setPlaying(!playing)
   }
 
@@ -36,9 +50,9 @@ export function Transport() {
         <input
           type="range"
           min={0}
-          max={CLIP_DURATION}
+          max={length}
           step={FRAME}
-          value={time}
+          value={Math.min(time, length)}
           onChange={(e) => {
             setPlaying(false)
             setTime(Number(e.target.value))
@@ -46,19 +60,30 @@ export function Transport() {
           className="h-1 w-full cursor-pointer accent-white"
           aria-label="Tiempo"
         />
-        {/* Where the entry ends and the hold begins. */}
-        <div className="flex h-1 w-full overflow-hidden rounded-full">
-          <div className="bg-sky-400/70" style={{ width: `${(entry / CLIP_DURATION) * 100}%` }} title="Entrada" />
-          <div className="flex-1 bg-white/15" title="Hold" />
+        {/* The parts of the clip: empty background, entry, hold, exit. */}
+        <div className="flex h-1 w-full gap-px overflow-hidden rounded-full">
+          {segments.map((seg, i) => (
+            <div
+              key={i}
+              className={SEGMENT_STYLE[seg.kind].className}
+              style={{ width: `${((seg.end - seg.start) / length) * 100}%` }}
+              title={`${SEGMENT_STYLE[seg.kind].label} ${(seg.end - seg.start).toFixed(2)} s`}
+            />
+          ))}
         </div>
-        <div className="flex justify-between text-[10px] text-neutral-500">
-          <span>Entrada {entry.toFixed(2)} s</span>
-          <span>Hold {(CLIP_DURATION - entry).toFixed(2)} s</span>
+        <div className="flex gap-3 text-[10px] text-neutral-500">
+          {segments
+            .filter((seg) => seg.kind !== 'empty')
+            .map((seg) => (
+              <span key={seg.kind}>
+                {SEGMENT_STYLE[seg.kind].label} {(seg.end - seg.start).toFixed(2)} s
+              </span>
+            ))}
         </div>
       </div>
 
       <span className="w-24 shrink-0 text-right font-mono text-xs tabular-nums text-neutral-400">
-        {time.toFixed(2)} / {CLIP_DURATION.toFixed(2)} s
+        {Math.min(time, length).toFixed(2)} / {length.toFixed(2)} s
       </span>
 
       <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-neutral-400 select-none">

@@ -1,13 +1,14 @@
 import { useEffect } from 'react'
+import { hasWebCodecs } from './export/codec'
 import { decodeSvg } from './processing/decode'
 import { useStudio } from './state/store'
 import { useLogoProcessing } from './state/useLogoProcessing'
 import { DEMO_LOGO_SVG } from './ui/demoLogo'
+import { ExportPanel } from './ui/ExportPanel'
 import { Preview } from './ui/Preview'
 import { Sidebar } from './ui/Sidebar'
 import { Transport } from './ui/Transport'
 
-const hasWebCodecs = typeof window !== 'undefined' && 'VideoEncoder' in window
 
 export default function App() {
   const loadLogo = useStudio((s) => s.loadLogo)
@@ -25,7 +26,7 @@ export default function App() {
         <h1 className="text-sm font-semibold tracking-wide">Logo Reveal Studio</h1>
       </header>
 
-      {!hasWebCodecs && (
+      {!hasWebCodecs() && (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-5 py-2 text-sm text-amber-200">
           Este navegador no soporta WebCodecs, así que no podrá exportar video. Usa Chrome o Edge de
           escritorio actualizados.
@@ -38,6 +39,7 @@ export default function App() {
           <div className="flex w-full max-w-5xl flex-col gap-4">
             <Preview />
             <Transport />
+            <ExportPanel />
           </div>
         </main>
       </div>

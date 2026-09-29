@@ -1,14 +1,18 @@
 import { create } from 'zustand'
 import { EFFECTS, type EffectId } from '../engine/effects'
+import { clipLength, type ClipSpec } from '../engine/timeline'
 import { DEFAULT_STAGE_SETTINGS, type StageSettings } from '../engine/types'
 import type { LogoSource } from '../processing/decode'
 import type { ProcessedLogo } from '../processing/pipeline'
 import { DEFAULT_WHITE_THRESHOLD } from '../processing/removeWhite'
 
-/** Total length of one logo clip. The hold is whatever remains after the entry effect. */
+/** Time each logo is on screen. The hold is whatever remains after the entry effect. */
 export const CLIP_DURATION = 6
+/** Empty background before and after an individual video, when enabled. */
+export const PAD_SECONDS = 1
 
 export type Resolution = 1080 | 2160
+export type Fps = 30 | 60
 
 export interface LogoOptions {
   effect: EffectId
@@ -34,6 +38,20 @@ export const DEFAULT_LOGO_OPTIONS: LogoOptions = {
 export const entryDurationOf = (options: LogoOptions): number =>
   options.entryDuration ?? EFFECTS[options.effect].entryDuration
 
+/**
+ * The clip for one logo's individual video. The preview plays exactly this, so what you
+ * scrub is what gets exported. With padding on, the logo also exits before the tail so
+ * the video doesn't cut from the logo straight to an empty frame.
+ */
+export const clipSpecOf = (options: LogoOptions, padEnds: boolean): ClipSpec => ({
+  effect: options.effect,
+  entryDuration: options.entryDuration ?? undefined,
+  duration: CLIP_DURATION,
+  lead: padEnds ? PAD_SECONDS : 0,
+  tail: padEnds ? PAD_SECONDS : 0,
+  exit: padEnds,
+})
+
 export interface LogoItem {
   id: string
   name: string
@@ -47,6 +65,8 @@ interface StudioState {
   logo: LogoItem | null
   settings: StageSettings
   resolution: Resolution
+  fps: Fps
+  padEnds: boolean
   playing: boolean
   loop: boolean
   time: number
@@ -57,6 +77,8 @@ interface StudioState {
   setProcessed: (id: string, result: { processed: ProcessedLogo } | { error: string }) => void
   updateSettings: (patch: Partial<StageSettings>) => void
   setResolution: (resolution: Resolution) => void
+  setFps: (fps: Fps) => void
+  setPadEnds: (padEnds: boolean) => void
   setPlaying: (playing: boolean) => void
   setLoop: (loop: boolean) => void
   setTime: (time: number) => void
@@ -66,6 +88,8 @@ export const useStudio = create<StudioState>()((set) => ({
   logo: null,
   settings: DEFAULT_STAGE_SETTINGS,
   resolution: 1080,
+  fps: 60,
+  padEnds: false,
   playing: true,
   loop: true,
   time: 0,
@@ -90,7 +114,13 @@ export const useStudio = create<StudioState>()((set) => ({
     }),
   updateSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
   setResolution: (resolution) => set({ resolution }),
+  setFps: (fps) => set({ fps }),
+  setPadEnds: (padEnds) => set({ padEnds, time: 0 }),
   setPlaying: (playing) => set({ playing }),
   setLoop: (loop) => set({ loop }),
   setTime: (time) => set({ time }),
 }))
+
+/** Length of what the preview plays (and an individual export contains), in seconds. */
+export const playbackLength = (s: Pick<StudioState, 'logo' | 'padEnds'>): number =>
+  s.logo ? clipLength(clipSpecOf(s.logo.options, s.padEnds)) : CLIP_DURATION

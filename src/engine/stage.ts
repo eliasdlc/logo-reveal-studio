@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { hexToRgb } from './color'
-import { evaluateEffect, type EffectId, type EffectState } from './effects'
+import type { EffectState } from './effects'
 import { FRAME_HEIGHT, normalizedLogoSize } from './layout'
+import { clipStateAt, type ClipSpec } from './timeline'
 import { DEFAULT_STAGE_SETTINGS, type StageLogo, type StageSettings } from './types'
 
 const FOV = 28
@@ -104,7 +105,8 @@ export interface StageOptions {
 
 /**
  * Owns the Three.js scene for one logo. Everything visible is a function of the logo,
- * the settings and the time passed to renderFrame(t) — nothing depends on wall-clock time.
+ * the settings, the clip and the time passed to renderFrame(t) — nothing depends on
+ * wall-clock time, so the preview and the exported video are the same frames.
  */
 export class LogoStage {
   readonly renderer: THREE.WebGLRenderer
@@ -129,8 +131,8 @@ export class LogoStage {
   private height = 0
 
   private settings: StageSettings = DEFAULT_STAGE_SETTINGS
-  private effect: EffectId = 'swing'
-  private entryDuration: number | undefined
+  private clip: ClipSpec = { effect: 'swing', duration: 6, lead: 0, tail: 0, exit: false }
+  private hasLogo = false
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas, options: StageOptions = {}) {
     this.renderer = new THREE.WebGLRenderer({
@@ -223,16 +225,14 @@ export class LogoStage {
     this.background.material.uniforms.color.value.fromArray(hexToRgb(settings.background))
   }
 
-  /** `entryDuration` stretches the whole entry to that many seconds (default: natural length). */
-  setEffect(effect: EffectId, entryDuration?: number): void {
-    this.effect = effect
-    this.entryDuration = entryDuration
+  setClip(clip: ClipSpec): void {
+    this.clip = clip
   }
 
   setLogo(logo: StageLogo | null): void {
     this.texture?.dispose()
     this.texture = null
-    this.logo.visible = logo !== null
+    this.hasLogo = logo !== null
     this.logo.material.uniforms.map.value = null
     if (!logo) return
 
@@ -268,7 +268,7 @@ export class LogoStage {
 
   /** Draws the exact state of the scene at clip time `t` (seconds). */
   renderFrame(t: number): void {
-    this.applyState(evaluateEffect(this.effect, t, this.entryDuration))
+    this.applyState(this.hasLogo ? clipStateAt(this.clip, t) : null)
     this.draw()
   }
 
@@ -281,7 +281,11 @@ export class LogoStage {
     this.renderer.dispose()
   }
 
-  private applyState(state: EffectState): void {
+  private applyState(state: EffectState | null): void {
+    this.logo.visible = state !== null
+    this.shadow.visible = state !== null && this.settings.shadow
+    if (!state) return
+
     const size = normalizedLogoSize(this.logoAspect, this.camera.aspect)
     // w × h is the visible content; the quad is a bit larger to hold the transparent margin.
     const w = size.width * this.logoScale * state.scale
@@ -296,7 +300,6 @@ export class LogoStage {
 
     // Contact shadow: shrinks and fades as the logo turns away from the camera.
     const facing = Math.abs(Math.cos(state.rotY * DEG) * Math.cos(state.rotX * DEG))
-    this.shadow.visible = this.settings.shadow && this.logo.visible
     this.shadow.scale.set(w * (0.55 + 0.35 * facing), Math.max(h * 0.12, 0.03 * state.scale), 1)
     this.shadow.position.set(0, -h / 2 - SHADOW_GAP * state.scale, 0)
     this.shadow.material.uniforms.strength.value = SHADOW_STRENGTH * state.opacity * facing ** 2

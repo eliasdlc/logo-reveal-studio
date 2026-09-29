@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { LogoStage } from '../engine/stage'
 import type { StageLogo } from '../engine/types'
-import { CLIP_DURATION, useStudio } from '../state/store'
+import { clipSpecOf, playbackLength, useStudio } from '../state/store'
 
 /** 16:9 live preview. Draws through the same LogoStage.renderFrame(t) the exporter uses. */
 export function Preview() {
@@ -26,23 +26,41 @@ export function Preview() {
       }
       stage.setLogoScale(s.logo?.options.scale ?? 1)
       stage.setSettings(s.settings)
-      if (s.logo) stage.setEffect(s.logo.options.effect, s.logo.options.entryDuration ?? undefined)
+      if (s.logo) stage.setClip(clipSpecOf(s.logo.options, s.padEnds))
       stage.renderFrame(s.time)
     }
 
+    // Render at the canvas' real device-pixel size so the browser never rescales it (blur).
+    // devicePixelContentBoxSize is exact when available, but isn't always updated for
+    // emulated/zoomed pixel ratios, so it's only trusted when it agrees with CSS size × DPR.
     const resize = new ResizeObserver(([entry]) => {
-      const box = entry.devicePixelContentBoxSize?.[0]
       const dpr = window.devicePixelRatio
-      stage.setSize(
-        box ? box.inlineSize : entry.contentRect.width * dpr,
-        box ? box.blockSize : entry.contentRect.height * dpr,
-      )
+      const cssW = entry.contentRect.width * dpr
+      const cssH = entry.contentRect.height * dpr
+      const box = entry.devicePixelContentBoxSize?.[0]
+      const exact = box && Math.abs(box.inlineSize - cssW) <= 1 && Math.abs(box.blockSize - cssH) <= 1
+      stage.setSize(exact ? box.inlineSize : Math.round(cssW), exact ? box.blockSize : Math.round(cssH))
       draw()
     })
     resize.observe(canvas)
     const unsubscribe = useStudio.subscribe(draw)
 
+    // Re-measure when the pixel ratio changes (browser zoom, moving to another monitor).
+    let dprQuery: MediaQueryList | null = null
+    const watchDpr = () => {
+      dprQuery?.removeEventListener('change', onDprChange)
+      dprQuery = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+      dprQuery.addEventListener('change', onDprChange)
+    }
+    const onDprChange = () => {
+      resize.unobserve(canvas)
+      resize.observe(canvas)
+      watchDpr()
+    }
+    watchDpr()
+
     return () => {
+      dprQuery?.removeEventListener('change', onDprChange)
       unsubscribe()
       resize.disconnect()
       stage.dispose()
@@ -55,13 +73,15 @@ export function Preview() {
     if (!playing) return
     let last = performance.now()
     let frame = requestAnimationFrame(function tick(now) {
-      const { time, loop, setTime, setPlaying } = useStudio.getState()
+      const state = useStudio.getState()
+      const { time, loop, setTime, setPlaying } = state
+      const length = playbackLength(state)
       let next = time + (now - last) / 1000
       last = now
-      if (next >= CLIP_DURATION) {
-        if (loop) next %= CLIP_DURATION
+      if (next >= length) {
+        if (loop) next %= length
         else {
-          setTime(CLIP_DURATION)
+          setTime(length)
           setPlaying(false)
           return
         }
