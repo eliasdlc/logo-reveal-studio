@@ -169,6 +169,7 @@ export class LogoStage {
   private readonly mirror = new THREE.Matrix4()
   private readonly shadows: LayerMesh[]
   private readonly liquid: LayerMesh
+  private readonly liquidReflection: LayerMesh
   private readonly assembly: ParticlePoints
   private readonly swarm: ParticlePoints
   private readonly resolveMaterial: THREE.ShaderMaterial
@@ -273,7 +274,7 @@ export class LogoStage {
         ) as unknown as LayerMesh,
     )
 
-    this.liquid = mesh(LIQUID_FRAG, {
+    const liquidUniforms = () => ({
       mapA: { value: null },
       mapB: { value: null },
       texSizeA: { value: new THREE.Vector2(1, 1) },
@@ -294,7 +295,16 @@ export class LogoStage {
       shineDirB: { value: new THREE.Vector2(1, 0) },
       mixAmount: { value: 0 },
       goo: { value: 0 },
+      emblemA: { value: new THREE.Vector4(0, 1, 0, 0) },
+      emblemB: { value: new THREE.Vector4(0, 1, 0, 0) },
+      mirror: { value: 0 },
+      mirrorFloor: { value: 0 },
+      mirrorHeight: { value: 1 },
     })
+    this.liquid = mesh(LIQUID_FRAG, liquidUniforms())
+    this.liquidReflection = mesh(LIQUID_FRAG, liquidUniforms())
+    this.liquidReflection.material.side = THREE.DoubleSide
+    this.liquidReflection.matrixAutoUpdate = false
 
     const points = (vertexShader: string, uniforms: Record<string, THREE.IUniform>): ParticlePoints => {
       const object = new THREE.Points(
@@ -327,6 +337,7 @@ export class LogoStage {
       ...this.reflections,
       ...this.extrusions,
       ...this.layers,
+      this.liquidReflection,
       this.liquid,
       this.assembly,
       this.swarm,
@@ -393,6 +404,7 @@ export class LogoStage {
       ...this.extrusions,
       ...this.shadows,
       this.liquid,
+      this.liquidReflection,
       this.assembly,
       this.swarm,
     ]) {
@@ -424,6 +436,7 @@ export class LogoStage {
       ...this.extrusions,
       ...this.shadows,
       this.liquid,
+      this.liquidReflection,
       this.assembly,
       this.swarm,
     ]) {
@@ -521,7 +534,9 @@ export class LogoStage {
       const u = extrusion.material.uniforms
       u.map.value = tex.texture
       u.texSize.value.set(tex.width, tex.height)
-      u.opacity.value = body
+      // Per slice, so that the stacked slices add up to `body`. The body also fades faster
+      // than the face, so a half-transparent face never shows a dark solid through it.
+      u.opacity.value = 1 - (1 - body ** 4) ** (1 / EXTRUSION_SLICES)
       u.thickness.value = finish.depth * h
       u.emblem.value.copy(face.material.uniforms.emblem.value)
     }
@@ -572,10 +587,13 @@ export class LogoStage {
     this.setReveal(u, reveal, sweep)
     this.setShine(u.shine.value, u.shineDir.value, state.shine, tex.aspect)
     u.mirror.value = 0
-    // Bevel width in texels of the texture's content.
-    const contentTexels = tex.height / tex.paddingScale.y
-    if (finish?.emblem) u.emblem.value.set(1, finish.bevel * contentTexels, finish.gloss, finish.metal)
-    else u.emblem.value.set(0, 1, 0, 0)
+    this.setEmblem(u.emblem.value, finish, tex)
+  }
+
+  /** (on, bevel width in texels of the texture's content, gloss, metal). */
+  private setEmblem(value: THREE.Vector4, finish: FinishSpec | null, tex: LogoTexture): void {
+    if (finish?.emblem) value.set(1, finish.bevel * (tex.height / tex.paddingScale.y), finish.gloss, finish.metal)
+    else value.set(0, 1, 0, 0)
   }
 
   private setReveal(u: Record<string, THREE.IUniform>, reveal: Reveal | null, sweep: SweepSpan | null): void {
@@ -661,6 +679,33 @@ export class LogoStage {
 
   /** Both logos of a liquid morph as one shape. Returns how far the blend has gone. */
   private drawLiquid(from: LogoLayer, to: LogoLayer, progress: number, order: number): number {
+    const mix = this.configureLiquid(this.liquid, from, to, progress, order)
+    const finishA = this.finishOf(from.item)
+    const finishB = this.finishOf(to.item)
+    const strength = lerp(finishA?.reflection ?? 0, finishB?.reflection ?? 0, mix)
+    if (strength > 0) {
+      // The melting shape's floor reflection, like the logos' own.
+      const reflection = this.liquidReflection
+      this.configureLiquid(reflection, from, to, progress, order - 1.5)
+      const a = this.placeLayer(from)
+      const b = this.placeLayer(to)
+      const floor = lerp(
+        -a.height / 2 - SHADOW_GAP * from.state.scale,
+        -b.height / 2 - SHADOW_GAP * to.state.scale,
+        mix,
+      )
+      const u = reflection.material.uniforms
+      u.mirror.value = strength
+      u.mirrorFloor.value = floor
+      u.mirrorHeight.value = Math.max(a.height, b.height)
+      this.mirror.makeScale(1, -1, 1).setPosition(0, 2 * floor, 0)
+      reflection.updateMatrix()
+      reflection.matrix.premultiply(this.mirror)
+    }
+    return mix
+  }
+
+  private configureLiquid(mesh: LayerMesh, from: LogoLayer, to: LogoLayer, progress: number, order: number): number {
     const a = this.placeLayer(from)
     const b = this.placeLayer(to)
     const { mix, blur, goo } = liquidAt(progress)
@@ -678,7 +723,6 @@ export class LogoStage {
     const minY = Math.min(ra.y - ra.h / 2, rb.y - rb.h / 2) - margin
     const maxY = Math.max(ra.y + ra.h / 2, rb.y + rb.h / 2) + margin
 
-    const mesh = this.liquid
     mesh.visible = true
     mesh.renderOrder = order
     mesh.position.set((minX + maxX) / 2, (minY + maxY) / 2, 0)
@@ -695,9 +739,11 @@ export class LogoStage {
       u[`blur${suffix}`].value.set(blur / r.w, blur / r.h)
       u[`opacity${suffix}`].value = state.opacity
       this.setShine(u[`shine${suffix}`].value, u[`shineDir${suffix}`].value, state.shine, place.tex.aspect)
+      this.setEmblem(u[`emblem${suffix}`].value, this.finishOf(suffix === 'A' ? from.item : to.item), place.tex)
     }
     side('A', a, ra, from.state)
     side('B', b, rb, to.state)
+    u.mirror.value = 0
     u.mixAmount.value = mix
     u.goo.value = goo
     return mix

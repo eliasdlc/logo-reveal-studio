@@ -13,6 +13,10 @@ const SRGB_ENCODE = /* glsl */ `
     c = clamp(c, 0.0, 1.0);
     return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
   }
+  vec3 srgbToLinear(vec3 c) {
+    c = clamp(c, 0.0, 1.0);
+    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
+  }
 `
 
 /**
@@ -382,11 +386,32 @@ export const LIQUID_FRAG = /* glsl */ `
   uniform vec2 shineDirB;
   uniform float mixAmount;
   uniform float goo;
+  uniform vec4 emblemA;
+  uniform vec4 emblemB;
+  uniform float mirror;
+  uniform float mirrorFloor;
+  uniform float mirrorHeight;
   varying vec2 vUv;
   varying vec2 vWorld;
+  varying vec3 vViewPos;
   ${SRGB_ENCODE}
   ${LOGO_SAMPLING}
   ${SHINE}
+  ${EMBLEM_LIGHT}
+
+  /*
+   * Slope of one logo's coverage over its bevel (or the current blur, if wider): the same
+   * height field the emblem face uses, so the melting shape keeps the emblem's relief.
+   */
+  vec2 bevelSlope(sampler2D map, vec2 texSize, vec2 u, float bevelTexels, vec2 blurUv) {
+    float w = max(bevelTexels, length(blurUv * texSize) * 1.4);
+    float lod = log2(max(w * 0.35, 1.0));
+    vec2 o = vec2(w * 0.5) / texSize;
+    return vec2(
+      texelLod(map, u + vec2(o.x, 0.0), lod).a - texelLod(map, u - vec2(o.x, 0.0), lod).a,
+      texelLod(map, u + vec2(0.0, o.y), lod).a - texelLod(map, u - vec2(0.0, o.y), lod).a
+    );
+  }
 
   /*
    * Straight sRGB colour of one logo: from a lightly blurred sample where the logo really
@@ -399,8 +424,10 @@ export const LIQUID_FRAG = /* glsl */ `
   }
 
   void main() {
-    vec2 uA = (vWorld - rectA.xy) / rectA.zw + 0.5;
-    vec2 uB = (vWorld - rectB.xy) / rectB.zw + 0.5;
+    // The floor reflection is this same shape mirrored: undo the mirror to sample it.
+    vec2 world = mirror > 0.0 ? vec2(vWorld.x, 2.0 * mirrorFloor - vWorld.y) : vWorld;
+    vec2 uA = (world - rectA.xy) / rectA.zw + 0.5;
+    vec2 uB = (world - rectB.xy) / rectB.zw + 0.5;
     vec2 dxA = dFdx(uA);
     vec2 dyA = dFdy(uA);
     vec2 dxB = dFdx(uB);
@@ -419,7 +446,24 @@ export const LIQUID_FRAG = /* glsl */ `
     // Coverage field normalised so that, half-way, the two shapes add up (they merge).
     float field = alpha / max(1.0 - mixAmount, mixAmount);
     float liquid = smoothstep(0.28, 0.46, field);
-    gl_FragColor = vec4(color, mix(alpha, liquid, goo));
+    float coverage = mix(alpha, liquid, goo);
+
+    // 3D emblem look, blended between the two logos' settings.
+    float emblem = mix(emblemA.x, emblemB.x, mixAmount);
+    if (emblem > 0.0) {
+      vec2 slope = ((1.0 - mixAmount) * bevelSlope(mapA, texSizeA, uA, emblemA.y, blurA)
+        + mixAmount * bevelSlope(mapB, texSizeB, uB, emblemB.y, blurB)) / max(1.0 - mixAmount, mixAmount);
+      // The gooey edge is steeper than the logos' own bevels.
+      vec3 n = normalize(vec3(-slope * mix(1.0, 2.0, goo), 0.55));
+      if (mirror > 0.0) n.y = -n.y;
+      vec3 lit = emblemLight(
+        srgbToLinear(color), n, vViewPos,
+        mix(emblemA.z, emblemB.z, mixAmount), mix(emblemA.w, emblemB.w, mixAmount)
+      );
+      color = mix(color, linearToSrgb(lit), emblem);
+    }
+    if (mirror > 0.0) coverage *= mirror * (1.0 - smoothstep(0.0, 0.6 * mirrorHeight, world.y - mirrorFloor));
+    gl_FragColor = vec4(color, coverage);
   }
 `
 
