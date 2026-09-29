@@ -3,6 +3,7 @@ import { hasWebCodecs } from './export/codec'
 import { decodeSvg } from './processing/decode'
 import { useStudio } from './state/store'
 import { useLogoProcessing } from './state/useLogoProcessing'
+import { AnimationPanel } from './ui/AnimationPanel'
 import { DEMO_LOGO_SVG } from './ui/demoLogo'
 import { ExportPanel } from './ui/ExportPanel'
 import { Preview } from './ui/Preview'
@@ -35,7 +36,7 @@ export default function App() {
 
       <div className="flex min-h-0 flex-1">
         <Sidebar />
-        <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 overflow-auto p-8">
+        <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 overflow-auto p-6">
           <div className="flex w-full max-w-5xl flex-col gap-4">
             <PreviewModeBar />
             <Preview />
@@ -43,6 +44,7 @@ export default function App() {
             <ExportPanel />
           </div>
         </main>
+        <AnimationPanel />
       </div>
     </div>
   )

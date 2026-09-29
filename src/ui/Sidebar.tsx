@@ -1,7 +1,6 @@
 import { PAD_SECONDS, useStudio, type Fps, type Resolution } from '../state/store'
 import { Row, Section, Select } from './controls'
 import { DropZone } from './DropZone'
-import { EFFECT_OPTIONS } from './effectOptions'
 import { LogoDetails } from './LogoDetails'
 import { LogoList } from './LogoList'
 
@@ -11,8 +10,7 @@ export function Sidebar() {
   const resolution = useStudio((s) => s.resolution)
   const fps = useStudio((s) => s.fps)
   const padEnds = useStudio((s) => s.padEnds)
-  const defaultEffect = useStudio((s) => s.defaultEffect)
-  const { updateSettings, setResolution, setFps, setPadEnds, setDefaultEffect, applyEffectToAll } = useStudio.getState()
+  const { updateSettings, setResolution, setFps, setPadEnds } = useStudio.getState()
 
   return (
     <aside className="flex w-80 shrink-0 flex-col gap-6 overflow-y-auto border-r border-white/10 bg-neutral-950 p-5">
@@ -43,18 +41,6 @@ export function Sidebar() {
             className="accent-white"
           />
         </Row>
-        <Row label="Efecto por defecto">
-          <Select value={defaultEffect} options={EFFECT_OPTIONS} onChange={setDefaultEffect} />
-        </Row>
-        {count > 1 && (
-          <button
-            type="button"
-            onClick={() => applyEffectToAll(defaultEffect)}
-            className="self-end text-xs text-neutral-400 underline-offset-2 hover:text-white hover:underline"
-          >
-            Aplicar {EFFECT_OPTIONS.find((o) => o.value === defaultEffect)?.label} a todos los logos
-          </button>
-        )}
       </Section>
 
       <Section title="Export">
@@ -88,8 +74,8 @@ export function Sidebar() {
         </Row>
         {padEnds && (
           <p className="text-xs leading-relaxed text-neutral-500">
-            Con el margen, el logo sale con un fundido antes del fondo final para que el video no corte de
-            golpe.
+            El video empieza y termina con el fondo vacío. Elige una salida en «Animación» para que el logo no
+            desaparezca de golpe.
           </p>
         )}
       </Section>

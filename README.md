@@ -19,10 +19,41 @@ npm run build
 
 Requiere Chrome o Edge de escritorio (WebCodecs para exportar).
 
+## Animación
+
+Todo se ajusta en el panel **Animación** (derecha). Hay una animación general para todos
+los logos y cada logo puede tener la suya («Personalizar solo este logo»).
+
+- **Entrada** — 14 efectos:
+  - Clásicas: Fundido, Swing, Card Flip, Pop.
+  - Cinemáticas: Enfoque (desenfocado → nítido), Llegada 3D, Destello, Deslizar (con
+    desenfoque de movimiento).
+  - Revelados: Ascenso (sale de detrás de una línea), Barrido, Círculo, Franjas, Disolver.
+  - Especiales: Partículas (miles de partículas con los colores del logo se ensamblan).
+
+  Cada una con duración, intensidad y dirección (cuando aplica).
+- **Brillo** — un reflejo de luz opcional que se combina con cualquier efecto: estilo
+  (suave, destello, doble), 8 direcciones (incluida hacia arriba), intensidad, ancho,
+  duración, retardo (negativo = durante la entrada) y repetición.
+- **Permanencia** — el tiempo que el logo se queda quieto, y un movimiento sutil opcional
+  (acercar, alejar, flotar) para que nunca se vea congelado.
+- **Salida** — los mismos efectos (o ninguna), con su duración, intensidad y dirección.
+- **Secuencia** — cómo pasa cada logo al siguiente: Morph líquido y Morph de partículas
+  (un logo se transforma en el otro), Fundido cruzado, Zoom desenfocado, Giro, Empuje,
+  Barrido de luz, o «Salida + entrada» (la salida de uno y la entrada del siguiente).
+  Con **Loop perfecto** el video termina transformándose en el primer logo, para
+  repetirse en una pantalla sin corte.
+
+«▶ Ver» (y cualquier cambio de efecto) salta el preview justo antes de esa parte.
+
 ## Estructura
 
-- `src/engine/` — escena Three.js (`LogoStage.renderFrame(t)`), efectos puros, easings y
-  normalización de tamaño (misma área visual, máx. 55% × 45% del frame).
+- `src/engine/` — escena Three.js (`LogoStage.renderFrame(t)`), normalización de tamaño
+  (misma área visual, máx. 55% × 45% del frame) y la animación, toda en funciones puras
+  del tiempo: `effects.ts` (entradas; las salidas son la entrada al revés),
+  `transitions.ts`, `shine.ts`, `drift.ts`, `timeline.ts` (programas: segmentos de
+  entrada, permanencia, salida y transición), `particles.ts` (muestreo determinista de
+  partículas y emparejamiento para el morph) y `shaders.ts`.
 - `src/processing/` — carga de PNG/JPG/SVG y preparación de la textura:
   análisis de transparencia, quitar fondo blanco (opcional), auto-trim, margen
   transparente, color bleeding y rasterizado de SVG a 2× su tamaño en pantalla.
@@ -36,7 +67,8 @@ Requiere Chrome o Edge de escritorio (WebCodecs para exportar).
 Las texturas se suben como sRGB, los shaders re-codifican a sRGB y la mezcla ocurre sobre
 valores sRGB (igual que un navegador o un editor de imágenes componen un PNG). Sin
 iluminación ni tone mapping: un píxel opaco del logo sale con el mismo valor que en el
-archivo.
+archivo. Los desenfoques (enfoque, movimiento, morph líquido) promedian en luz lineal y
+premultiplicada, así los bordes no se oscurecen.
 
 ## Export
 
@@ -44,8 +76,8 @@ Tres salidas, cada una idéntica a lo que muestra el preview en el modo correspo
 
 - **Exportar este logo** — un MP4 del logo seleccionado (con el margen de 1 s opcional).
 - **Exportar todos (ZIP)** — un MP4 por logo, numerados en el orden de la lista.
-- **Exportar secuencia completa** — un solo MP4 con todos los logos en orden; cada uno sale
-  (escala 1 → 0.95, opacidad 1 → 0 en 0.5 s) antes de que entre el siguiente.
+- **Exportar secuencia completa** — un solo MP4 con todos los logos en orden, unidos por la
+  transición elegida.
 
 
 - Frame por frame (`t = i / fps`), nunca en tiempo real: el video sale igual aunque la

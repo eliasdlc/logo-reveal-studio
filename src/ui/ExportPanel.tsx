@@ -5,7 +5,7 @@ import { baseName, downloadBlob } from '../export/download'
 import { exportProgramMp4, programFrameCount, requireCodec } from '../export/exportProgram'
 import { numberedNames, zipFiles } from '../export/zip'
 import { logoIssues } from '../state/issues'
-import { individualItem, sequenceProgram } from '../state/program'
+import { fullSequenceProgram, individualProgram } from '../state/program'
 import { selectedLogo, useStudio } from '../state/store'
 
 type ExportStatus =
@@ -74,10 +74,10 @@ export function ExportPanel() {
     run('Este logo', async (signal, report) => {
       const s = useStudio.getState()
       const logo = selectedLogo(s)
-      const item = logo && individualItem(logo, s.padEnds)
-      if (!logo || !item) throw new Error('El logo todavía no está listo.')
+      const program = logo && individualProgram(logo, s.animation, s.padEnds)
+      if (!logo || !program?.items.length) throw new Error('El logo todavía no está listo.')
       const blob = await exportProgramMp4({
-        program: { items: [item] },
+        program,
         settings: s.settings,
         format: formatOf(s),
         signal,
@@ -92,8 +92,8 @@ export function ExportPanel() {
       const format = formatOf(s)
       const codec = await requireCodec(format)
       const jobs = s.logos.flatMap((logo) => {
-        const item = individualItem(logo, s.padEnds)
-        return item ? [{ logo, program: { items: [item] } }] : []
+        const program = individualProgram(logo, s.animation, s.padEnds)
+        return program.items.length ? [{ logo, program }] : []
       })
       if (jobs.length === 0) throw new Error('No hay logos listos para exportar.')
       const names = numberedNames(
@@ -120,7 +120,7 @@ export function ExportPanel() {
   const exportSequence = () =>
     run('Secuencia completa', async (signal, report) => {
       const s = useStudio.getState()
-      const program = sequenceProgram(s.logos)
+      const program = fullSequenceProgram(s.logos, s.animation, s.sequence)
       const blob = await exportProgramMp4({
         program,
         settings: s.settings,
