@@ -391,6 +391,15 @@ export class LogoStage {
     this.draw()
   }
 
+  /**
+   * Copies the last rendered frame into `target` (RGBA, width × height × 4 bytes), rows
+   * from the bottom up as WebGL reads them. Needs `preserveDrawingBuffer`.
+   */
+  readPixels(target: Uint8Array): void {
+    const gl = this.renderer.getContext()
+    gl.readPixels(0, 0, this.width, this.height, gl.RGBA, gl.UNSIGNED_BYTE, target)
+  }
+
   dispose(): void {
     this.textures.clear()
     this.clouds.clear()

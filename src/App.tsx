@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { hasWebCodecs } from './export/codec'
 import { decodeSvg } from './processing/decode'
 import { startSession } from './state/persistence'
 import { useStudio } from './state/store'
@@ -12,6 +11,7 @@ import { PreviewModeBar } from './ui/PreviewModeBar'
 import { ProjectMenu } from './ui/ProjectMenu'
 import { Sidebar } from './ui/Sidebar'
 import { Transport } from './ui/Transport'
+import { UpdateButton } from './ui/UpdateButton'
 
 export default function App() {
   const addLogos = useStudio((s) => s.addLogos)
@@ -29,15 +29,11 @@ export default function App() {
     <div className="flex h-screen flex-col bg-neutral-950 text-neutral-100">
       <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-2.5">
         <h1 className="text-sm font-semibold tracking-wide">Logo Reveal Studio</h1>
-        <ProjectMenu />
-      </header>
-
-      {!hasWebCodecs() && (
-        <div className="border-b border-amber-500/30 bg-amber-500/10 px-5 py-2 text-sm text-amber-200">
-          Este navegador no soporta WebCodecs, así que no podrá exportar video. Usa Chrome o Edge de
-          escritorio actualizados.
+        <div className="flex items-center gap-4">
+          <UpdateButton />
+          <ProjectMenu />
         </div>
-      )}
+      </header>
 
       <div className="flex min-h-0 flex-1">
         <Sidebar />

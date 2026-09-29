@@ -21,6 +21,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "h264-mp4-encoder": "^1.0.12",
     "jszip": "^3.10.2",
     "mediabunny": "^1.60.0",
     "react": "^19.2.8",

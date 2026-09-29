@@ -17,11 +17,21 @@ npm run lint
 npm run build
 ```
 
-Requiere Node 20.19 o superior, y Chrome o Edge de escritorio (WebCodecs para exportar).
+Requiere Node 20.19 o superior y un navegador de escritorio actual (Chrome, Edge, Firefox
+o Safari).
 
 Si actualizas el código (`git pull`) y se agregó una dependencia, `npm run dev`, `build` y
 `test` corren `npm install` solos antes de arrancar (`scripts/ensure-deps.mjs`), en vez de
 fallar con «Failed to resolve import».
+
+### Actualizar desde la app
+
+Con `npm run dev`, la app revisa GitHub al abrirse, cada 10 minutos y al volver a la
+pestaña. Si hay cambios nuevos aparece **↻ Actualizar** arriba a la derecha (al pasar el
+mouse muestra qué trae): un clic hace `git pull` (solo avance rápido, nunca pisa trabajo
+local), instala dependencias si cambiaron y recarga la página. Lo que estabas editando se
+conserva. Si hay cambios locales en los archivos que se actualizan, o commits locales sin
+subir, no toca nada y explica qué hacer (`scripts/updater.ts`).
 
 ## Animación
 
@@ -95,7 +105,9 @@ guardar, listo para «Guardar como…».
 - `src/processing/` — carga de PNG/JPG/SVG y preparación de la textura:
   análisis de transparencia, quitar fondo blanco (opcional), auto-trim, margen
   transparente, color bleeding y rasterizado de SVG a 2× su tamaño en pantalla.
-- `src/export/` — export MP4 frame por frame: WebCodecs (H.264) + Mediabunny.
+- `src/export/` — export MP4 frame por frame: RGB → YUV BT.709 (`yuv.ts`), H.264 en
+  WebAssembly en un worker (`h264.worker.ts`), MP4 final y verificación con Mediabunny
+  (`mp4.ts`), nivel H.264 (`codec.ts`).
 - `src/ui/` — componentes React.
 - `src/state/` — estado global (Zustand), procesamiento por logo y los «programas» que
   reproduce el preview y se exportan (logo individual o secuencia).
@@ -117,16 +129,20 @@ Tres salidas, cada una idéntica a lo que muestra el preview en el modo correspo
 - **Exportar secuencia completa** — un solo MP4 con todos los logos en orden, unidos por la
   transición elegida.
 
-
-- Si el navegador no puede codificar H.264 (algunas compilaciones de Chromium en Linux), el
-  export sale en WebM (VP9) y la app lo avisa: se ve en navegadores y VLC, pero no en
-  PowerPoint ni QuickTime.
 - Frame por frame (`t = i / fps`), nunca en tiempo real: el video sale igual aunque la
   PC sea lenta, y cada frame es exactamente el del preview.
-- H.264 8-bit 4:2:0 con el nivel correcto para tamaño **y** fps (1080p30 → 4.0,
-  1080p60 → 4.2, 4K30 → 5.1, 4K60 → 5.2), perfil High → Main → Baseline según lo que
-  acepte el navegador, y el índice (`moov`) al inicio del archivo para QuickTime y
-  PowerPoint.
-- La calidad final depende del encoder del navegador: con aceleración por hardware
-  (Windows/macOS) respeta el bitrate; el encoder por software de Chrome en Linux tiene
-  un tope de calidad propio.
+- Pensado para que se reproduzca en cualquier lado, teléfonos y WhatsApp incluidos:
+  H.264 **Constrained Baseline** (el perfil que decodifica todo aparato), 8-bit 4:2:0,
+  colores BT.709 en rango limitado declarados en el archivo, un keyframe por segundo, el
+  **nivel** calculado del tamaño, los fps y el bitrate real (1080p30 → 4.0, 1080p60 → 4.2,
+  4K30 → 5.1, 4K60 → 5.2) y el índice (`moov`) al inicio.
+- Bitrate controlado (24 Mbps en 1080p30, 26 en 1080p60, 60–90 en 4K): los logos quietos
+  salen casi sin pérdida y los momentos más cargados (partículas, disolver) no se pasan de
+  lo que el nivel permite.
+- El encoder es el mismo en todos los navegadores (minih264 en WebAssembly, en un worker),
+  así que el archivo no depende del navegador ni de la tarjeta de video.
+- Antes de descargarse, el MP4 se vuelve a leer y se comprueba: contenedor, códec,
+  tamaño, cantidad de frames, duración y keyframes; donde el navegador puede decodificar
+  H.264, además se decodifica frame por frame. Si algo falla, no se descarga y lo avisa.
+- Para mandar por WhatsApp o al teléfono conviene 1080p: el 4K pesa mucho y muchos
+  teléfonos no lo reproducen a 60 fps.

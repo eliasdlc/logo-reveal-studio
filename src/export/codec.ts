@@ -1,10 +1,10 @@
 /*
- * H.264 settings chosen for playback everywhere (VLC, QuickTime, PowerPoint, browsers):
- * 8-bit 4:2:0, the right level for size AND frame rate (Mediabunny's automatic pick only
- * looks at the frame size), and the best profile the browser's encoder accepts.
+ * H.264 details that decide whether a phone will play the file. Hardware decoders (phones,
+ * TVs, WhatsApp's player) are strict where desktop players are lenient: the stream must
+ * declare a profile and a level that cover its real size, frame rate and bitrate.
  *
- * Some browsers (e.g. Chromium builds without proprietary codecs) can't encode H.264 at
- * all; they fall back to VP9 in a WebM file rather than not exporting.
+ * The encoder writes Constrained Baseline, the profile every H.264 decoder supports; the
+ * level is chosen here from the finished stream and written into its headers.
  */
 
 export interface VideoFormat {
@@ -13,83 +13,117 @@ export interface VideoFormat {
   fps: number
 }
 
-export interface CodecChoice {
-  /** Full WebCodecs codec string, e.g. avc1.64002A. */
-  codec: string
-  profile: 'High' | 'Main' | 'Baseline' | 'VP9'
-  bitrate: number
-  /** Constant-quality target (lower is better); the bitrate is the fallback. */
-  quantizer: number
-  /** MP4 for H.264, WebM for the VP9 fallback. Also the file extension. */
-  container: 'mp4' | 'webm'
+/**
+ * Encoder settings. Rate-controlled rather than constant quality: flat logo frames come
+ * out near-lossless well under the budget, and busy moments (particles, dissolves) can't
+ * spike past what the level allows.
+ */
+export interface EncoderSettings {
+  /** Target bitrate in kbit/s. */
+  kbps: number
+  /** 0 = best compression … 10 = fastest. */
+  speed: number
+  /** Frames between keyframes. */
+  keyFrameInterval: number
 }
 
-/** Bits per second. Flat backgrounds compress well; this leaves ample room for fine text. */
-export function bitrateFor({ height, fps }: VideoFormat): number {
-  const base = height > 1080 ? 40_000_000 : 12_000_000
-  return fps > 30 ? base * 1.5 : base
+export function encoderSettings({ height, fps }: VideoFormat): EncoderSettings {
+  const uhd = height > 1080
+  const kbps = uhd ? (fps > 30 ? 90_000 : 60_000) : fps > 30 ? 26_000 : 24_000
+  return { kbps, speed: uhd ? 8 : 6, keyFrameInterval: Math.round(fps) }
 }
 
-/** H.264 level (as the hex byte of the codec string) for the frame size and rate. */
-export function levelFor({ width, height, fps }: VideoFormat): string {
-  const macroblocksPerSecond = Math.ceil(width / 16) * Math.ceil(height / 16) * fps
-  if (macroblocksPerSecond <= 245_760) return '28' // 4.0 — 1080p30
-  if (macroblocksPerSecond <= 522_240) return '2A' // 4.2 — 1080p60
-  if (macroblocksPerSecond <= 983_040) return '33' // 5.1 — 2160p30
-  return '34' // 5.2 — 2160p60
+interface Level {
+  idc: number
+  /** Macroblocks per second. */
+  maxRate: number
+  /** Macroblocks per frame. */
+  maxFrame: number
+  /** Bits per second (Baseline/Main). */
+  maxBitrate: number
 }
 
-const PROFILES = [
-  { profile: 'High', prefix: '6400' },
-  { profile: 'Main', prefix: '4D40' },
-  { profile: 'Baseline', prefix: '42E0' },
-] as const
+// ITU-T H.264 Table A-1.
+const LEVELS: Level[] = [
+  { idc: 31, maxRate: 108_000, maxFrame: 3_600, maxBitrate: 14_000_000 },
+  { idc: 32, maxRate: 216_000, maxFrame: 5_120, maxBitrate: 20_000_000 },
+  { idc: 40, maxRate: 245_760, maxFrame: 8_192, maxBitrate: 20_000_000 },
+  { idc: 41, maxRate: 245_760, maxFrame: 8_192, maxBitrate: 50_000_000 },
+  { idc: 42, maxRate: 522_240, maxFrame: 8_704, maxBitrate: 50_000_000 },
+  { idc: 50, maxRate: 589_824, maxFrame: 22_080, maxBitrate: 135_000_000 },
+  { idc: 51, maxRate: 983_040, maxFrame: 36_864, maxBitrate: 240_000_000 },
+  { idc: 52, maxRate: 2_073_600, maxFrame: 36_864, maxBitrate: 240_000_000 },
+]
 
-/** VP9 level (as the two digits of the codec string) for the frame size and rate. */
-export function vp9LevelFor({ width, height, fps }: VideoFormat): string {
-  const samplesPerSecond = width * height * fps
-  if (samplesPerSecond <= 83_558_400) return '40' // 1080p30
-  if (samplesPerSecond <= 160_432_128) return '41' // 1080p60
-  if (samplesPerSecond <= 311_951_360) return '50' // 2160p30
-  return '51' // 2160p60
+/** Lowest level (as level_idc, e.g. 42 = 4.2) that covers the format and peak bitrate. */
+export function levelFor({ width, height, fps }: VideoFormat, peakBitrate: number): number {
+  const frame = Math.ceil(width / 16) * Math.ceil(height / 16)
+  const level = LEVELS.find((l) => frame <= l.maxFrame && frame * fps <= l.maxRate && peakBitrate <= l.maxBitrate)
+  return (level ?? LEVELS[LEVELS.length - 1]).idc
 }
 
-/** H.264 profiles from best to most compatible, then the VP9 fallback. */
-export function codecCandidates(format: VideoFormat): CodecChoice[] {
-  const level = levelFor(format)
-  const bitrate = bitrateFor(format)
-  return [
-    ...PROFILES.map(({ profile, prefix }) => ({
-      codec: `avc1.${prefix}${level}`,
-      profile,
-      bitrate,
-      quantizer: 18,
-      container: 'mp4' as const,
-    })),
-    { codec: `vp09.00.${vp9LevelFor(format)}.08`, profile: 'VP9', bitrate, quantizer: 20, container: 'webm' },
-  ]
-}
-
-export function hasWebCodecs(): boolean {
-  return typeof window !== 'undefined' && 'VideoEncoder' in window && 'VideoFrame' in window
-}
-
-/** First configuration this browser can encode (H.264 if at all possible), or null. */
-export async function chooseCodec(format: VideoFormat): Promise<CodecChoice | null> {
-  if (!hasWebCodecs()) return null
-  for (const choice of codecCandidates(format)) {
-    try {
-      const { supported } = await VideoEncoder.isConfigSupported({
-        codec: choice.codec,
-        width: format.width,
-        height: format.height,
-        framerate: format.fps,
-        bitrate: choice.bitrate,
-      })
-      if (supported) return choice
-    } catch {
-      // Malformed or unknown config on this browser: try the next one.
-    }
+/** Highest number of bits in any one-second window of the stream. */
+export function peakBitrate(packetBytes: readonly number[], fps: number): number {
+  const window = Math.max(1, Math.round(fps))
+  let sum = 0
+  let peak = 0
+  for (let i = 0; i < packetBytes.length; i++) {
+    sum += packetBytes[i]
+    if (i >= window) sum -= packetBytes[i - window]
+    peak = Math.max(peak, sum)
   }
-  return null
+  // A clip shorter than a second is scaled up to a full second's rate.
+  if (packetBytes.length < window) peak = (peak * window) / Math.max(packetBytes.length, 1)
+  return peak * 8
 }
+
+const BASELINE = 66
+/** constraint_set0 + constraint_set1: Constrained Baseline, decodable by Main/High decoders too. */
+const CONSTRAINED_BASELINE = 0xc0
+
+/** Rewrites profile compatibility and level in an SPS NAL unit starting at `offset` (its header byte). */
+function patchSps(bytes: Uint8Array, offset: number, level: number): void {
+  if (bytes[offset + 1] === BASELINE) bytes[offset + 2] |= CONSTRAINED_BASELINE
+  bytes[offset + 3] = level
+}
+
+/**
+ * The avcC decoder configuration record with the given level (in the record and in its
+ * SPS units). Returns a copy.
+ */
+export function withLevel(avcC: Uint8Array, level: number): Uint8Array {
+  const out = avcC.slice()
+  if (out.length < 7 || out[0] !== 1) throw new Error('Configuración H.264 no válida.')
+  const count = out[5] & 0x1f
+  let offset = 6
+  for (let i = 0; i < count; i++) {
+    const length = (out[offset] << 8) | out[offset + 1]
+    patchSps(out, offset + 2, level)
+    offset += 2 + length
+  }
+  out[2] = out[10] // profile compatibility = the first SPS constraint flags
+  out[3] = level
+  return out
+}
+
+/** Applies the same change to any SPS carried inside a packet (length-prefixed NAL units). */
+export function withLevelInPacket(data: Uint8Array, lengthSize: number, level: number): Uint8Array {
+  let out = data
+  let offset = 0
+  while (offset + lengthSize < data.length) {
+    let length = 0
+    for (let i = 0; i < lengthSize; i++) length = length * 256 + data[offset + i]
+    const nal = offset + lengthSize
+    if ((data[nal] & 0x1f) === 7) {
+      if (out === data) out = data.slice()
+      patchSps(out, nal, level)
+    }
+    offset = nal + length
+  }
+  return out
+}
+
+const hex = (byte: number) => byte.toString(16).toUpperCase().padStart(2, '0')
+
+/** WebCodecs codec string for an avcC record, e.g. avc1.42C02A. */
+export const codecString = (avcC: Uint8Array): string => `avc1.${hex(avcC[1])}${hex(avcC[2])}${hex(avcC[3])}`
