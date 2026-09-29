@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { EFFECTS, REST_STATE, compose, evaluateEntry, evaluateExit, type EffectId, type EffectState } from './effects'
 import { driftAt } from './drift'
+import { idleAt } from './idle'
 import { shineAt } from './shine'
 import {
   clipProgram,
@@ -24,7 +25,14 @@ const motion = (effect: EffectId, duration = EFFECTS[effect].duration): MotionSp
   direction: EFFECTS[effect].defaultDirection,
 })
 
-const plain: ItemAnimation = { entry: motion('swing', 1.6), hold: 2, exit: motion('fade', 0.8), shine: null, drift: null }
+const plain: ItemAnimation = {
+  entry: motion('swing', 1.6),
+  hold: 2,
+  exit: motion('fade', 0.8),
+  shine: null,
+  drift: null,
+  idle: null,
+}
 
 const item = (logo: string, animation: Partial<ItemAnimation> = {}): ProgramItem<string> => ({
   logo,
@@ -95,6 +103,16 @@ describe('clipProgram', () => {
     const frame = programAt(program, 2.3)!
     const expected = compose(REST_STATE, { ...driftAt(drift, 2.3, 4.4), shine: shineAt(shine, 0.7, 2) })
     expect(approx(frame.draws[0])).toEqual(approx({ kind: 'logo', item: 0, state: expected }))
+  })
+
+  it('plays the idle motion only while the logo is at rest', () => {
+    const idle = { kind: 'sway' as const, amount: 1, period: 1 }
+    const program = clipProgram(item('a', { idle, hold: 3 }))
+    const stateAt = (t: number) => (programAt(program, t)!.draws[0] as { state: EffectState }).state
+    expect(stateAt(1.6)).toEqual(REST_STATE)
+    expect(approx(stateAt(1.6 + 1.25))).toEqual(approx(idleAt(idle, 1.25, 3)))
+    expect(Math.abs(stateAt(1.6 + 1.25).rotY)).toBeGreaterThan(5)
+    expect(stateAt(4.6)).toEqual(REST_STATE)
   })
 })
 
@@ -238,7 +256,8 @@ function visible(frame: Frame): Record<number, Record<string, number>> {
 }
 
 describe('continuity', () => {
-  const drift = { kind: 'float' as const, amount: 1 }
+  // An amount that doesn't land scales exactly on the half-hundredths `visible` rounds at.
+  const drift = { kind: 'zoom-in' as const, amount: 0.93 }
   const shine = { delay: 0.1, duration: 0.8, interval: 1.2, angle: 90, width: 0.2, intensity: 0.6, style: 'glint' as const }
 
   it.each(TRANSITION_IDS)('%s: nothing pops at any segment boundary', (kind) => {
@@ -247,6 +266,7 @@ describe('continuity', () => {
         entry: motion((['focus', 'rise', 'particles'] as const)[i]),
         exit: motion((['slide', 'wipe', 'depth'] as const)[i]),
         drift,
+        idle: { kind: (['hover', 'tilt', 'pulse'] as const)[i], amount: 1.5, period: 1.3 },
         shine,
       }),
     )

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ACCEPTED_TYPES, decodeFile } from '../processing/decode'
-import { useStudio } from '../state/store'
+import { useStudio, type NewLogo } from '../state/store'
 
 /** Accepts several logos at once, by drag & drop or file picker. */
 export function DropZone() {
@@ -14,10 +14,10 @@ export function DropZone() {
     setErrors([])
     setBusy(true)
     const results = await Promise.allSettled(files.map(decodeFile))
-    const added: { name: string; source: Awaited<ReturnType<typeof decodeFile>> }[] = []
+    const added: NewLogo[] = []
     const failed: string[] = []
     results.forEach((r, i) => {
-      if (r.status === 'fulfilled') added.push({ name: files[i].name, source: r.value })
+      if (r.status === 'fulfilled') added.push({ name: files[i].name, source: r.value, file: files[i] })
       else failed.push(`${files[i].name}: ${r.reason instanceof Error ? r.reason.message : 'no se pudo leer'}`)
     })
     addLogos(added)

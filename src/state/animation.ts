@@ -1,5 +1,6 @@
 import type { DriftKind } from '../engine/drift'
-import { EFFECTS, directionFor, type Direction, type EffectId, type ShineStyle } from '../engine/effects'
+import { ALL_DIRECTIONS, EFFECTS, directionFor, type Direction, type EffectId, type ShineStyle } from '../engine/effects'
+import type { IdleKind } from '../engine/idle'
 import type { ItemAnimation, MotionSpec, TransitionSpec } from '../engine/timeline'
 import { TRANSITIONS, type TransitionId } from '../engine/transitions'
 
@@ -36,6 +37,14 @@ export interface DriftSettings {
   amount: number
 }
 
+/** Looping motion while the logo is at rest. */
+export interface IdleSettings {
+  kind: IdleKind | 'none'
+  amount: number
+  /** Seconds per cycle. */
+  period: number
+}
+
 /** How a logo arrives, stays and leaves. */
 export interface AnimationSettings {
   entry: MotionSettings
@@ -44,6 +53,7 @@ export interface AnimationSettings {
   exit: ExitSettings
   shine: ShineSettings
   drift: DriftSettings
+  idle: IdleSettings
 }
 
 export interface SequenceSettings {
@@ -70,6 +80,7 @@ export const DEFAULT_ANIMATION: AnimationSettings = {
     style: 'glint',
   },
   drift: { kind: 'zoom-in', amount: 1 },
+  idle: { kind: 'hover', amount: 1, period: 3.5 },
 }
 
 export const DEFAULT_SEQUENCE: SequenceSettings = {
@@ -86,6 +97,7 @@ export interface AnimationPatch {
   exit?: Partial<ExitSettings>
   shine?: Partial<ShineSettings>
   drift?: Partial<DriftSettings>
+  idle?: Partial<IdleSettings>
 }
 
 export function patchAnimation(animation: AnimationSettings, patch: AnimationPatch): AnimationSettings {
@@ -95,6 +107,7 @@ export function patchAnimation(animation: AnimationSettings, patch: AnimationPat
     exit: { ...animation.exit, ...patch.exit },
     shine: { ...animation.shine, ...patch.shine },
     drift: { ...animation.drift, ...patch.drift },
+    idle: { ...animation.idle, ...patch.idle },
   }
 }
 
@@ -109,7 +122,7 @@ const resolveMotion = (motion: MotionSettings): MotionSpec => ({
 
 /** The settings as the timeline plays them. */
 export function resolveAnimation(animation: AnimationSettings): ItemAnimation {
-  const { entry, hold, exit, shine, drift } = animation
+  const { entry, hold, exit, shine, drift, idle } = animation
   return {
     entry: resolveMotion(entry),
     hold,
@@ -126,6 +139,7 @@ export function resolveAnimation(animation: AnimationSettings): ItemAnimation {
         }
       : null,
     drift: drift.kind === 'none' ? null : { kind: drift.kind, amount: drift.amount },
+    idle: idle.kind === 'none' ? null : { kind: idle.kind, amount: idle.amount, period: idle.period },
   }
 }
 
@@ -139,4 +153,69 @@ export function resolveTransition(sequence: SequenceSettings): TransitionSpec {
     duration: transitionDuration(sequence),
     direction: directions?.includes(sequence.direction) ? sequence.direction : defaultDirection,
   }
+}
+
+// ─── Restoring saved settings ───────────────────────────────────────────────
+
+type Loose = Record<string, unknown>
+type Check = (value: unknown) => boolean
+
+const isObject = (value: unknown): value is Loose => typeof value === 'object' && value !== null
+
+/**
+ * `fallback` with each field replaced by the saved one when that has the same type (a
+ * nullable duration may be a number) and passes its check, if any.
+ */
+function merge<T extends object>(fallback: T, saved: unknown, checks: Partial<Record<keyof T, Check>> = {}): T {
+  if (!isObject(saved)) return fallback
+  const out: Loose = { ...(fallback as Loose) }
+  for (const [key, value] of Object.entries(fallback)) {
+    const candidate = saved[key]
+    const check = checks[key as keyof T]
+    const sameType = typeof candidate === typeof value || (value === null && typeof candidate === 'number')
+    if (candidate !== undefined && sameType && (!check || check(candidate))) out[key] = candidate
+  }
+  return out as T
+}
+
+const oneOf =
+  (values: readonly unknown[]): Check =>
+  (v) =>
+    values.includes(v)
+const isNumber: Check = (v) => typeof v === 'number' && Number.isFinite(v)
+const isDuration: Check = (v) => v === null || (isNumber(v) && (v as number) > 0)
+const motionChecks = {
+  effect: (v: unknown) => typeof v === 'string' && v in EFFECTS,
+  duration: isDuration,
+  intensity: isNumber,
+  direction: oneOf(ALL_DIRECTIONS),
+}
+
+/**
+ * Animation settings read back from storage, possibly saved by an older version: anything
+ * missing, unknown or of the wrong type falls back to its default.
+ */
+export function normalizeAnimation(saved: unknown): AnimationSettings {
+  const raw = isObject(saved) ? saved : {}
+  const d = DEFAULT_ANIMATION
+  return {
+    entry: merge(d.entry, raw.entry, motionChecks),
+    hold: isNumber(raw.hold) && (raw.hold as number) >= 0 ? (raw.hold as number) : d.hold,
+    exit: merge(d.exit, raw.exit, motionChecks),
+    shine: merge(d.shine, raw.shine, { style: oneOf(['soft', 'glint', 'double']) }),
+    drift: merge(d.drift, raw.drift, { kind: oneOf(['none', 'zoom-in', 'zoom-out']), amount: isNumber }),
+    idle: merge(d.idle, raw.idle, {
+      kind: oneOf(['none', 'hover', 'breathe', 'sway', 'tilt', 'pulse']),
+      amount: isNumber,
+      period: isDuration,
+    }),
+  }
+}
+
+export function normalizeSequence(saved: unknown): SequenceSettings {
+  return merge(DEFAULT_SEQUENCE, saved, {
+    transition: (v) => typeof v === 'string' && v in TRANSITIONS,
+    duration: isDuration,
+    direction: oneOf(ALL_DIRECTIONS),
+  })
 }

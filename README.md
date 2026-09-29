@@ -39,8 +39,11 @@ los logos y cada logo puede tener la suya («Personalizar solo este logo»).
 - **Brillo** — un reflejo de luz opcional que se combina con cualquier efecto: estilo
   (suave, destello, doble), 8 direcciones (incluida hacia arriba), intensidad, ancho,
   duración, retardo (negativo = durante la entrada) y repetición.
-- **Permanencia** — el tiempo que el logo se queda quieto, y un movimiento sutil opcional
-  (acercar, alejar, flotar) para que nunca se vea congelado.
+- **Permanencia** — el tiempo que el logo se queda en pantalla y qué hace mientras tanto:
+  - **Animación en reposo**, en bucle: Flotar (levita sobre su sombra), Respirar, Balanceo
+    3D, Inclinación 3D (un ocho lento) o Latido (doble pulso de luz). Intensidad y ritmo
+    configurables; empieza y termina suavemente, así no altera la entrada ni la salida.
+  - **Cámara**: un acercamiento o alejamiento lento y continuo.
 - **Salida** — los mismos efectos (o ninguna), con su duración, intensidad y dirección.
 - **Secuencia** — cómo pasa cada logo al siguiente: Morph líquido y Morph de partículas
   (un logo se transforma en el otro), Fundido cruzado, Zoom desenfocado, Giro, Empuje,
@@ -49,6 +52,13 @@ los logos y cada logo puede tener la suya («Personalizar solo este logo»).
   repetirse en una pantalla sin corte.
 
 «▶ Ver» (y cualquier cambio de efecto) salta el preview justo antes de esa parte.
+
+## Sesión guardada
+
+Todo se guarda solo en el navegador: al recargar la página vuelven los logos (en su
+orden), sus ajustes, las animaciones, la secuencia, la escena y el export. Los ajustes van
+a `localStorage` y los archivos subidos a IndexedDB (`src/state/persistence.ts`); al
+arrancar se decodifican y procesan de nuevo. Borrar un logo borra también su archivo.
 
 ## Estructura
 

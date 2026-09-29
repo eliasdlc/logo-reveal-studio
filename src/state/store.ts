@@ -43,8 +43,17 @@ export interface LogoItem {
   options: LogoOptions
   processed: ProcessedLogo | null
   error: string | null
+  /** The file as uploaded, kept so the session can be restored after a reload. */
+  file?: Blob | null
   /** The built-in sample logo; replaced as soon as real logos are added. */
   demo?: boolean
+}
+
+/** A logo being added: its decoded source and, for uploads, the original file. */
+export interface NewLogo {
+  name: string
+  source: LogoSource
+  file?: Blob
 }
 
 export type PreviewMode = 'logo' | 'sequence'
@@ -64,7 +73,7 @@ interface StudioState {
   loop: boolean
   time: number
 
-  addLogos: (entries: { name: string; source: LogoSource }[], options?: { demo?: boolean }) => void
+  addLogos: (entries: NewLogo[], options?: { demo?: boolean }) => void
   removeLogo: (id: string) => void
   moveLogo: (fromId: string, toId: string) => void
   selectLogo: (id: string) => void
@@ -122,10 +131,11 @@ export const useStudio = create<StudioState>()((set) => ({
   addLogos: (entries, { demo = false } = {}) =>
     set((s) => {
       if (entries.length === 0) return {}
-      const added: LogoItem[] = entries.map(({ name, source }) => ({
+      const added: LogoItem[] = entries.map(({ name, source, file }) => ({
         id: newId(),
         name,
         source,
+        file: file ?? null,
         options: DEFAULT_LOGO_OPTIONS,
         processed: null,
         error: null,

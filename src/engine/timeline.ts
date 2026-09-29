@@ -8,6 +8,7 @@ import {
   type EffectId,
   type EffectState,
 } from './effects'
+import { idleAt, type IdleSpec } from './idle'
 import { shineAt, type ShineSpec } from './shine'
 import { TRANSITIONS, evaluateTransition, type TransitionId } from './transitions'
 
@@ -29,6 +30,8 @@ export interface ItemAnimation {
   exit: MotionSpec | null
   shine: ShineSpec | null
   drift: DriftSpec | null
+  /** Looping motion while the logo is at rest. */
+  idle: IdleSpec | null
 }
 
 export interface TransitionSpec {
@@ -213,9 +216,10 @@ export function segmentIndexAt(program: Program, t: number): number {
 
 /** Drift and shine of one appearance at program time `t`. */
 function ambientState(program: Program, occurrence: Occurrence, t: number): EffectState {
-  const { drift, shine } = program.items[occurrence.item].animation
+  const { drift, idle, shine } = program.items[occurrence.item].animation
   let state = REST_STATE
   if (drift) state = driftAt(drift, t - occurrence.appear, occurrence.vanish - occurrence.appear)
+  if (idle) state = compose(state, idleAt(idle, t - occurrence.arrive, occurrence.depart - occurrence.arrive))
   if (shine) {
     const sweep = shineAt(shine, t - occurrence.arrive, occurrence.depart - occurrence.arrive)
     if (sweep) state = { ...state, shine: sweep }

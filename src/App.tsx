@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { hasWebCodecs } from './export/codec'
 import { decodeSvg } from './processing/decode'
+import { startSession } from './state/persistence'
 import { useStudio } from './state/store'
 import { useLogoProcessing } from './state/useLogoProcessing'
 import { AnimationPanel } from './ui/AnimationPanel'
@@ -16,7 +17,9 @@ export default function App() {
   useLogoProcessing()
 
   useEffect(() => {
-    void decodeSvg(DEMO_LOGO_SVG).then((source) => {
+    const demo = () => decodeSvg(DEMO_LOGO_SVG)
+    void startSession(demo, async () => {
+      const source = await demo()
       if (useStudio.getState().logos.length === 0) addLogos([{ name: 'Logo de ejemplo', source }], { demo: true })
     })
   }, [addLogos])

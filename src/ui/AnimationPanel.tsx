@@ -9,15 +9,25 @@ import {
   transitionDuration,
   type AnimationPatch,
   type DriftSettings,
+  type IdleSettings,
   type MotionSettings,
 } from '../state/animation'
 import { fullSequenceProgram, previewTimeFor } from '../state/program'
 import { selectedLogo, useStudio } from '../state/store'
-import { Notice, Row, Section, Segmented, Slider } from './controls'
+import { Notice, OptionGrid, Row, Section, Segmented, Slider } from './controls'
 import { AnglePicker, DirectionPicker, EffectPicker, TransitionPicker } from './pickers'
 
 const seconds = (v: number) => `${v.toFixed(2)} s`
 const percent = (v: number) => `${Math.round(v * 100)}%`
+
+const IDLE_OPTIONS: { value: IdleSettings['kind']; label: string; title: string }[] = [
+  { value: 'none', label: 'Ninguna', title: 'El logo se queda quieto.' },
+  { value: 'hover', label: 'Flotar', title: 'Levita sobre su sombra, subiendo y bajando con una leve inclinación.' },
+  { value: 'breathe', label: 'Respirar', title: 'Crece y se encoge muy suavemente, como si respirara.' },
+  { value: 'sway', label: 'Balanceo 3D', title: 'Gira de un lado a otro en 3D.' },
+  { value: 'tilt', label: 'Inclinación 3D', title: 'Se inclina trazando un ocho, como una tarjeta sostenida en el aire.' },
+  { value: 'pulse', label: 'Latido', title: 'Late con un doble pulso de luz, como un corazón.' },
+]
 
 /** Jumps the preview to just before one part of the animation and plays it. */
 function showPart(kind: SegmentKind) {
@@ -51,7 +61,7 @@ export function AnimationPanel() {
   const own = logo?.options.animation ?? null
   const animation = own ?? general
   const update = (patch: AnimationPatch) => updateAnimation(own && logo ? logo.id : null, patch)
-  const { entry, exit, shine, drift } = animation
+  const { entry, exit, shine, drift, idle } = animation
   const onScreen = motionDuration(entry) + animation.hold + (exit.enabled ? motionDuration(exit) : 0)
 
   const chooseEntry = (effect: EffectId | 'none') => {
@@ -222,22 +232,61 @@ export function AnimationPanel() {
           onReset={() => update({ hold: DEFAULT_ANIMATION.hold })}
         />
         <div className="flex flex-col gap-1.5 text-sm text-neutral-300">
-          <span>Movimiento mientras está en pantalla</span>
+          <span>Animación en reposo</span>
+          <OptionGrid<IdleSettings['kind']>
+            label="Animación en reposo"
+            value={idle.kind}
+            options={IDLE_OPTIONS}
+            onChange={(kind) => {
+              update({ idle: { kind } })
+              if (kind !== 'none') showPart('hold')
+            }}
+          />
+        </div>
+        {idle.kind !== 'none' && (
+          <>
+            <p className="text-xs leading-relaxed text-neutral-500">
+              {IDLE_OPTIONS.find((o) => o.value === idle.kind)?.title} Se repite mientras el logo está quieto y se
+              detiene suavemente antes de la salida.
+            </p>
+            <Slider
+              label="Intensidad"
+              value={idle.amount}
+              min={0.25}
+              max={2.5}
+              step={0.05}
+              format={percent}
+              onChange={(amount) => update({ idle: { amount } })}
+              onReset={() => update({ idle: { amount: DEFAULT_ANIMATION.idle.amount } })}
+            />
+            <Slider
+              label="Ritmo (un ciclo cada)"
+              value={idle.period}
+              min={1}
+              max={8}
+              step={0.1}
+              format={(v) => `${v.toFixed(1)} s`}
+              onChange={(period) => update({ idle: { period } })}
+              onReset={() => update({ idle: { period: DEFAULT_ANIMATION.idle.period } })}
+            />
+          </>
+        )}
+        <div className="flex flex-col gap-1.5 text-sm text-neutral-300">
+          <span>Cámara</span>
           <Segmented<DriftSettings['kind']>
-            label="Movimiento mientras está en pantalla"
+            label="Movimiento de cámara"
             value={drift.kind}
             options={[
-              { value: 'none', label: 'Quieto', title: 'Sin movimiento' },
-              { value: 'zoom-in', label: 'Acercar', title: 'Se acerca lentamente a la cámara' },
-              { value: 'zoom-out', label: 'Alejar', title: 'Se aleja lentamente' },
-              { value: 'float', label: 'Flotar', title: 'Sube y baja muy suavemente' },
+              { value: 'none', label: 'Fija', title: 'Sin movimiento de cámara' },
+              { value: 'zoom-in', label: 'Acercar', title: 'La cámara se acerca lentamente todo el tiempo' },
+              { value: 'zoom-out', label: 'Alejar', title: 'La cámara se aleja lentamente todo el tiempo' },
             ]}
             onChange={(kind) => update({ drift: { kind } })}
           />
         </div>
         {drift.kind !== 'none' && (
           <Slider
-            label="Intensidad del movimiento"
+            label="Intensidad de la cámara"
             value={drift.amount}
             min={0.25}
             max={2.5}
