@@ -8,6 +8,7 @@ import {
   type EffectId,
   type EffectState,
 } from './effects'
+import type { FinishSpec } from './finish'
 import { idleAt, type IdleSpec } from './idle'
 import { shineAt, type ShineSpec } from './shine'
 import { TRANSITIONS, evaluateTransition, type TransitionId } from './transitions'
@@ -32,6 +33,8 @@ export interface ItemAnimation {
   drift: DriftSpec | null
   /** Looping motion while the logo is at rest. */
   idle: IdleSpec | null
+  /** Surface look (3D emblem, floor reflection); null = flat, no reflection. */
+  finish: FinishSpec | null
 }
 
 export interface TransitionSpec {

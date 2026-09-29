@@ -1,12 +1,15 @@
 import * as THREE from 'three'
-import { lerp } from './easings'
+import { lerp, smoothstep } from './easings'
 import { hexToRgb } from './color'
 import { directionVector, type EffectState, type Reveal, type ShineState } from './effects'
+import { solidity, type FinishSpec } from './finish'
 import { FRAME_HEIGHT, normalizedLogoSize } from './layout'
 import { pairClouds, random, sampleParticles, type ParticleCloud, type ParticlePairing } from './particles'
 import {
   ASSEMBLY_VERT,
   BACKGROUND_FRAG,
+  EXTRUDE_FRAG,
+  EXTRUDE_VERT,
   FULLSCREEN_VERT,
   LIQUID_FRAG,
   LOGO_FRAG,
@@ -32,6 +35,9 @@ const SHADOW_GAP = 0.035
 
 /** Particle dot diameter relative to the spacing between particles: slightly overlapping. */
 const DOT_SCALE = 1.35
+/** Stacked silhouettes that make up an emblem's thickness. */
+const EXTRUSION_SLICES = 28
+
 /** Softness of the sweep transition's line, in frame heights. */
 const SWEEP_SOFTNESS = 0.045
 
@@ -115,6 +121,28 @@ function revealCoverage(reveal: Reveal | null): number {
   return reveal.progress
 }
 
+/** EXTRUSION_SLICES unit quads, back to front, each tagged with its depth (1 = back). */
+function extrusionGeometry(): THREE.BufferGeometry {
+  const positions: number[] = []
+  const uvs: number[] = []
+  const slices: number[] = []
+  const indices: number[] = []
+  for (let i = 0; i < EXTRUSION_SLICES; i++) {
+    const depth = 1 - i / EXTRUSION_SLICES
+    const base = i * 4
+    positions.push(-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0)
+    uvs.push(0, 0, 1, 0, 1, 1, 0, 1)
+    slices.push(depth, depth, depth, depth)
+    indices.push(base, base + 1, base + 2, base, base + 2, base + 3)
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setAttribute('slice', new THREE.Float32BufferAttribute(slices, 1))
+  geometry.setIndex(indices)
+  return geometry
+}
+
 export interface StageOptions {
   /** Keep the canvas contents after compositing (needed to read frames back for export). */
   preserveDrawingBuffer?: boolean
@@ -135,6 +163,10 @@ export class LogoStage {
   private readonly background: LayerMesh
   /** Two of each: a transition shows two logos at once. */
   private readonly layers: LayerMesh[]
+  /** Floor reflections and emblem bodies, one per layer. */
+  private readonly reflections: LayerMesh[]
+  private readonly extrusions: LayerMesh[]
+  private readonly mirror = new THREE.Matrix4()
   private readonly shadows: LayerMesh[]
   private readonly liquid: LayerMesh
   private readonly assembly: ParticlePoints
@@ -193,23 +225,52 @@ export class LogoStage {
       return shadow
     })
 
-    this.layers = [0, 1].map(() =>
-      mesh(LOGO_FRAG, {
-        map: { value: null },
-        texSize: { value: new THREE.Vector2(1, 1) },
-        uvScale: { value: new THREE.Vector2(1, 1) },
-        pad: { value: new THREE.Vector2() },
-        aspect: { value: 1 },
-        opacity: { value: 1 },
-        flash: { value: 0 },
-        blurRadius: { value: new THREE.Vector2() },
-        smear: { value: new THREE.Vector2() },
-        revealKind: { value: 0 },
-        revealA: { value: new THREE.Vector4() },
-        revealB: { value: new THREE.Vector4() },
-        shine: { value: new THREE.Vector4(0, 1, 0, 0) },
-        shineDir: { value: new THREE.Vector2(1, 0) },
-      }),
+    const logoUniforms = () => ({
+      map: { value: null },
+      texSize: { value: new THREE.Vector2(1, 1) },
+      uvScale: { value: new THREE.Vector2(1, 1) },
+      pad: { value: new THREE.Vector2() },
+      aspect: { value: 1 },
+      opacity: { value: 1 },
+      flash: { value: 0 },
+      blurRadius: { value: new THREE.Vector2() },
+      smear: { value: new THREE.Vector2() },
+      revealKind: { value: 0 },
+      revealA: { value: new THREE.Vector4() },
+      revealB: { value: new THREE.Vector4() },
+      shine: { value: new THREE.Vector4(0, 1, 0, 0) },
+      shineDir: { value: new THREE.Vector2(1, 0) },
+      emblem: { value: new THREE.Vector4() },
+      mirror: { value: 0 },
+    })
+    this.layers = [0, 1].map(() => mesh(LOGO_FRAG, logoUniforms()))
+    this.reflections = [0, 1].map(() => {
+      const reflection = mesh(LOGO_FRAG, logoUniforms())
+      // Mirrored, so its triangles face away; its matrix is set by hand.
+      reflection.material.side = THREE.DoubleSide
+      reflection.matrixAutoUpdate = false
+      return reflection
+    })
+    const slices = extrusionGeometry()
+    this.extrusions = [0, 1].map(
+      () =>
+        new THREE.Mesh(
+          slices,
+          new THREE.ShaderMaterial({
+            ...flat,
+            transparent: true,
+            side: THREE.DoubleSide,
+            vertexShader: EXTRUDE_VERT,
+            fragmentShader: EXTRUDE_FRAG,
+            uniforms: {
+              map: { value: null },
+              texSize: { value: new THREE.Vector2(1, 1) },
+              opacity: { value: 1 },
+              thickness: { value: 0 },
+              emblem: { value: new THREE.Vector4() },
+            },
+          }),
+        ) as unknown as LayerMesh,
     )
 
     this.liquid = mesh(LIQUID_FRAG, {
@@ -260,7 +321,16 @@ export class LogoStage {
       pixelScale: { value: 1 },
     })
 
-    this.scene.add(this.background, ...this.shadows, ...this.layers, this.liquid, this.assembly, this.swarm)
+    this.scene.add(
+      this.background,
+      ...this.shadows,
+      ...this.reflections,
+      ...this.extrusions,
+      ...this.layers,
+      this.liquid,
+      this.assembly,
+      this.swarm,
+    )
     this.hideAll()
 
     this.resolveMaterial = new THREE.ShaderMaterial({
@@ -316,9 +386,19 @@ export class LogoStage {
     this.pairs.clear()
     this.target?.dispose()
     this.background.geometry.dispose()
-    for (const object of [this.background, ...this.layers, ...this.shadows, this.liquid, this.assembly, this.swarm]) {
+    for (const object of [
+      this.background,
+      ...this.layers,
+      ...this.reflections,
+      ...this.extrusions,
+      ...this.shadows,
+      this.liquid,
+      this.assembly,
+      this.swarm,
+    ]) {
       object.material.dispose()
     }
+    this.extrusions[0].geometry.dispose()
     this.assembly.geometry.dispose()
     this.swarm.geometry.dispose()
     this.resolveMaterial.dispose()
@@ -338,7 +418,17 @@ export class LogoStage {
   // ─── Drawing ──────────────────────────────────────────────────────────────
 
   private hideAll(): void {
-    for (const object of [...this.layers, ...this.shadows, this.liquid, this.assembly, this.swarm]) object.visible = false
+    for (const object of [
+      ...this.layers,
+      ...this.reflections,
+      ...this.extrusions,
+      ...this.shadows,
+      this.liquid,
+      this.assembly,
+      this.swarm,
+    ]) {
+      object.visible = false
+    }
   }
 
   private drawFrame(draws: Draw[]): void {
@@ -353,7 +443,7 @@ export class LogoStage {
           const place = this.placeLayer(draw)
           const { state } = draw
           if (state.opacity > 0 && layers < this.layers.length) {
-            this.drawLayer(this.layers[layers++], place, state, sweep, order)
+            this.drawLogo(layers++, place, state, sweep, order, this.finishOf(draw.item))
           }
           if (shadows < this.shadows.length) this.drawShadow(this.shadows[shadows++], place, state, 1)
           if (state.particles) this.drawAssembly(this.program.items[draw.item].logo, place, state, order + 1)
@@ -363,6 +453,18 @@ export class LogoStage {
           const mix = this.drawLiquid(draw.from, draw.to, draw.progress, order)
           this.drawShadow(this.shadows[shadows++], this.placeLayer(draw.from), draw.from.state, 1 - mix)
           this.drawShadow(this.shadows[shadows++], this.placeLayer(draw.to), draw.to.state, mix)
+          // The liquid shape is flat: a logo with a finish (emblem, reflection) melts into it
+          // and emerges from it with a quick crossfade instead of switching look abruptly.
+          const ends = [
+            { layer: draw.from, weight: 1 - smoothstep(0, 0.15, draw.progress) },
+            { layer: draw.to, weight: smoothstep(0.85, 1, draw.progress) },
+          ]
+          ends.forEach(({ layer, weight }, slot) => {
+            const finish = this.finishOf(layer.item)
+            if (!finish || weight <= 0) return
+            const state = { ...layer.state, opacity: layer.state.opacity * weight }
+            this.drawLogo(slot, this.placeLayer(layer), state, null, order + 1 + slot, finish)
+          })
           break
         }
         case 'swarm':
@@ -379,7 +481,60 @@ export class LogoStage {
     return { tex, width: size.width * scale * state.scale, height: size.height * scale * state.scale }
   }
 
-  private drawLayer(mesh: LayerMesh, place: Placement, state: EffectState, sweep: SweepSpan | null, order: number): void {
+  private finishOf(item: number): FinishSpec | null {
+    return this.program.items[item].animation.finish
+  }
+
+  /** One logo layer in `slot`: its face, plus the emblem's body and the floor reflection. */
+  private drawLogo(
+    slot: number,
+    place: Placement,
+    state: EffectState,
+    sweep: SweepSpan | null,
+    order: number,
+    finish: FinishSpec | null,
+  ): void {
+    const face = this.layers[slot]
+    this.drawLayer(face, place, state, sweep, order, finish)
+    if (!finish) return
+
+    if (finish.reflection > 0) {
+      const reflection = this.reflections[slot]
+      this.drawLayer(reflection, place, state, sweep, order - 1.5, finish)
+      reflection.material.uniforms.mirror.value = finish.reflection
+      // Mirror the whole layer across the floor the contact shadow sits on.
+      const floor = -place.height / 2 - SHADOW_GAP * state.scale
+      this.mirror.makeScale(1, -1, 1).setPosition(0, 2 * floor, 0)
+      reflection.updateMatrix()
+      reflection.matrix.premultiply(this.mirror)
+    }
+
+    const body = finish.emblem ? solidity(state) : 0
+    if (body > 0 && finish.depth > 0) {
+      const { tex, width: w, height: h } = place
+      const extrusion = this.extrusions[slot]
+      extrusion.visible = true
+      extrusion.renderOrder = order - 0.5
+      extrusion.position.set(state.x, state.y, state.z)
+      extrusion.rotation.set(state.rotX * DEG, state.rotY * DEG, state.rotZ * DEG)
+      extrusion.scale.set(w * tex.paddingScale.x, h * tex.paddingScale.y, 1)
+      const u = extrusion.material.uniforms
+      u.map.value = tex.texture
+      u.texSize.value.set(tex.width, tex.height)
+      u.opacity.value = body
+      u.thickness.value = finish.depth * h
+      u.emblem.value.copy(face.material.uniforms.emblem.value)
+    }
+  }
+
+  private drawLayer(
+    mesh: LayerMesh,
+    place: Placement,
+    state: EffectState,
+    sweep: SweepSpan | null,
+    order: number,
+    finish: FinishSpec | null = null,
+  ): void {
     const { tex, width: w, height: h } = place
     const texW = w * tex.paddingScale.x
     const texH = h * tex.paddingScale.y
@@ -416,6 +571,11 @@ export class LogoStage {
     u.smear.value.set(state.smearX / texW, state.smearY / texH)
     this.setReveal(u, reveal, sweep)
     this.setShine(u.shine.value, u.shineDir.value, state.shine, tex.aspect)
+    u.mirror.value = 0
+    // Bevel width in texels of the texture's content.
+    const contentTexels = tex.height / tex.paddingScale.y
+    if (finish?.emblem) u.emblem.value.set(1, finish.bevel * contentTexels, finish.gloss, finish.metal)
+    else u.emblem.value.set(0, 1, 0, 0)
   }
 
   private setReveal(u: Record<string, THREE.IUniform>, reveal: Reveal | null, sweep: SweepSpan | null): void {

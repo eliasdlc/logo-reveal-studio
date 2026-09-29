@@ -44,6 +44,11 @@ los logos y cada logo puede tener la suya («Personalizar solo este logo»).
     3D, Inclinación 3D (un ocho lento) o Latido (doble pulso de luz). Intensidad y ritmo
     configurables; empieza y termina suavemente, así no altera la entrada ni la salida.
   - **Cámara**: un acercamiento o alejamiento lento y continuo.
+- **Acabado** — «Plano» (el logo tal cual) o «Emblema 3D»: el logo se convierte en una pieza
+  sólida con grosor real, bordes biselados en cada forma y letra, y una iluminación de
+  estudio con brillos y reflejo metálico que se mueven al girar (luce mejor con
+  «Inclinación 3D» o «Balanceo 3D» en reposo). Grosor, bisel, brillo y reflejo metálico
+  son ajustables, y cualquier logo puede tener además un reflejo en el suelo.
 - **Salida** — los mismos efectos (o ninguna), con su duración, intensidad y dirección.
 - **Secuencia** — cómo pasa cada logo al siguiente: Morph líquido y Morph de partículas
   (un logo se transforma en el otro), Fundido cruzado, Zoom desenfocado, Giro, Empuje,

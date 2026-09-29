@@ -45,6 +45,19 @@ export interface IdleSettings {
   period: number
 }
 
+/** Surface look: flat as in the file, or a solid 3D emblem; plus a floor reflection. */
+export interface FinishSettings {
+  kind: 'flat' | 'emblem'
+  /** Thickness, in logo heights. */
+  depth: number
+  /** Rounded-edge width, in logo heights. */
+  bevel: number
+  gloss: number
+  metal: number
+  /** 0 = no floor reflection. */
+  reflection: number
+}
+
 /** How a logo arrives, stays and leaves. */
 export interface AnimationSettings {
   entry: MotionSettings
@@ -54,6 +67,7 @@ export interface AnimationSettings {
   shine: ShineSettings
   drift: DriftSettings
   idle: IdleSettings
+  finish: FinishSettings
 }
 
 export interface SequenceSettings {
@@ -81,6 +95,7 @@ export const DEFAULT_ANIMATION: AnimationSettings = {
   },
   drift: { kind: 'zoom-in', amount: 1 },
   idle: { kind: 'hover', amount: 1, period: 3.5 },
+  finish: { kind: 'flat', depth: 0.08, bevel: 0.035, gloss: 0.7, metal: 0.3, reflection: 0 },
 }
 
 export const DEFAULT_SEQUENCE: SequenceSettings = {
@@ -98,6 +113,7 @@ export interface AnimationPatch {
   shine?: Partial<ShineSettings>
   drift?: Partial<DriftSettings>
   idle?: Partial<IdleSettings>
+  finish?: Partial<FinishSettings>
 }
 
 export function patchAnimation(animation: AnimationSettings, patch: AnimationPatch): AnimationSettings {
@@ -108,6 +124,7 @@ export function patchAnimation(animation: AnimationSettings, patch: AnimationPat
     shine: { ...animation.shine, ...patch.shine },
     drift: { ...animation.drift, ...patch.drift },
     idle: { ...animation.idle, ...patch.idle },
+    finish: { ...animation.finish, ...patch.finish },
   }
 }
 
@@ -122,7 +139,7 @@ const resolveMotion = (motion: MotionSettings): MotionSpec => ({
 
 /** The settings as the timeline plays them. */
 export function resolveAnimation(animation: AnimationSettings): ItemAnimation {
-  const { entry, hold, exit, shine, drift, idle } = animation
+  const { entry, hold, exit, shine, drift, idle, finish } = animation
   return {
     entry: resolveMotion(entry),
     hold,
@@ -140,6 +157,17 @@ export function resolveAnimation(animation: AnimationSettings): ItemAnimation {
       : null,
     drift: drift.kind === 'none' ? null : { kind: drift.kind, amount: drift.amount },
     idle: idle.kind === 'none' ? null : { kind: idle.kind, amount: idle.amount, period: idle.period },
+    finish:
+      finish.kind === 'flat' && finish.reflection <= 0
+        ? null
+        : {
+            emblem: finish.kind === 'emblem',
+            depth: finish.depth,
+            bevel: finish.bevel,
+            gloss: finish.gloss,
+            metal: finish.metal,
+            reflection: finish.reflection,
+          },
   }
 }
 
@@ -208,6 +236,14 @@ export function normalizeAnimation(saved: unknown): AnimationSettings {
       kind: oneOf(['none', 'hover', 'breathe', 'sway', 'tilt', 'pulse']),
       amount: isNumber,
       period: isDuration,
+    }),
+    finish: merge(d.finish, raw.finish, {
+      kind: oneOf(['flat', 'emblem']),
+      depth: isNumber,
+      bevel: isNumber,
+      gloss: isNumber,
+      metal: isNumber,
+      reflection: isNumber,
     }),
   }
 }

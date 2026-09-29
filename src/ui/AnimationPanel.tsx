@@ -9,6 +9,7 @@ import {
   transitionDuration,
   type AnimationPatch,
   type DriftSettings,
+  type FinishSettings,
   type IdleSettings,
   type MotionSettings,
 } from '../state/animation'
@@ -61,7 +62,7 @@ export function AnimationPanel() {
   const own = logo?.options.animation ?? null
   const animation = own ?? general
   const update = (patch: AnimationPatch) => updateAnimation(own && logo ? logo.id : null, patch)
-  const { entry, exit, shine, drift, idle } = animation
+  const { entry, exit, shine, drift, idle, finish } = animation
   const onScreen = motionDuration(entry) + animation.hold + (exit.enabled ? motionDuration(exit) : 0)
 
   const chooseEntry = (effect: EffectId | 'none') => {
@@ -218,6 +219,80 @@ export function AnimationPanel() {
             Un reflejo de luz que cruza el logo al terminar la entrada. Se puede combinar con cualquier efecto.
           </p>
         )}
+      </Section>
+
+      <Section title="Acabado" aside={<PlayPart kind="hold" />}>
+        <Segmented<FinishSettings['kind']>
+          label="Acabado"
+          value={finish.kind}
+          options={[
+            { value: 'flat', label: 'Plano', title: 'El logo tal cual es el archivo' },
+            { value: 'emblem', label: 'Emblema 3D', title: 'Un objeto sólido con grosor, bordes redondeados y reflejos' },
+          ]}
+          onChange={(kind) => {
+            update({ finish: { kind } })
+            showPart('hold')
+          }}
+        />
+        {finish.kind === 'emblem' ? (
+          <>
+            <p className="text-xs leading-relaxed text-neutral-500">
+              Convierte el logo en una pieza sólida: grosor real, bordes biselados y una iluminación de estudio
+              con brillos y reflejos que se mueven al girar. Combínalo con «Inclinación 3D» o «Balanceo 3D» en
+              reposo para lucirlo.
+            </p>
+            <Slider
+              label="Grosor"
+              value={finish.depth}
+              min={0.02}
+              max={0.25}
+              step={0.005}
+              format={percent}
+              onChange={(depth) => update({ finish: { depth } })}
+              onReset={() => update({ finish: { depth: DEFAULT_ANIMATION.finish.depth } })}
+            />
+            <Slider
+              label="Bisel (bordes redondeados)"
+              value={finish.bevel}
+              min={0.005}
+              max={0.1}
+              step={0.001}
+              format={(v) => `${Math.round(v * 1000) / 10}%`}
+              onChange={(bevel) => update({ finish: { bevel } })}
+              onReset={() => update({ finish: { bevel: DEFAULT_ANIMATION.finish.bevel } })}
+            />
+            <Slider
+              label="Brillo"
+              value={finish.gloss}
+              min={0}
+              max={1}
+              step={0.05}
+              format={percent}
+              onChange={(gloss) => update({ finish: { gloss } })}
+              onReset={() => update({ finish: { gloss: DEFAULT_ANIMATION.finish.gloss } })}
+            />
+            <Slider
+              label="Reflejo metálico"
+              value={finish.metal}
+              min={0}
+              max={1}
+              step={0.05}
+              format={percent}
+              onChange={(metal) => update({ finish: { metal } })}
+              onReset={() => update({ finish: { metal: DEFAULT_ANIMATION.finish.metal } })}
+            />
+          </>
+        ) : null}
+        <Slider
+          label="Reflejo en el suelo"
+          value={finish.reflection}
+          min={0}
+          max={0.6}
+          step={0.01}
+          format={(v) => (v === 0 ? 'sin reflejo' : percent(v))}
+          onChange={(reflection) => update({ finish: { reflection } })}
+          onReset={() => update({ finish: { reflection: 0 } })}
+        />
       </Section>
 
       <Section title="Permanencia" aside={<PlayPart kind="hold" />}>

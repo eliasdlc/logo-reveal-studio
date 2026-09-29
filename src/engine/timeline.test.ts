@@ -32,6 +32,7 @@ const plain: ItemAnimation = {
   shine: null,
   drift: null,
   idle: null,
+  finish: null,
 }
 
 const item = (logo: string, animation: Partial<ItemAnimation> = {}): ProgramItem<string> => ({

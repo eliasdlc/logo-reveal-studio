@@ -88,6 +88,39 @@ const SHINE = /* glsl */ `
   }
 `
 
+/*
+ * Studio lighting for the 3D emblem, in view space: a key light from the upper left, a
+ * soft environment (bright softbox above, darker floor) for reflections, and a rim.
+ * Normalised so a flat face looking at the camera keeps exactly the logo's own colours;
+ * only bevels and turns change them.
+ */
+const EMBLEM_LIGHT = /* glsl */ `
+  const vec3 KEY = vec3(-0.4534, 0.6549, 0.6045);
+  const float AMBIENT = 0.62;
+  const float DIFFUSE = 0.55;
+
+  float studio(vec3 r) {
+    float sky = 0.5 + 0.5 * smoothstep(-0.35, 0.85, r.y);
+    float a = (r.y - 0.5) / 0.11;
+    float b = (r.x + 0.62) / 0.12;
+    float softbox = 0.9 * exp(-a * a) * smoothstep(-0.2, 0.4, r.z);
+    float strip = 0.5 * exp(-b * b);
+    return sky + softbox + strip;
+  }
+
+  /* 'base' is linear colour, 'n' the surface normal in view space. */
+  vec3 emblemLight(vec3 base, vec3 n, vec3 viewPos, float gloss, float metal) {
+    vec3 v = normalize(-viewPos);
+    float front = AMBIENT + DIFFUSE * KEY.z;
+    vec3 lit = base * (AMBIENT + DIFFUSE * max(dot(n, KEY), 0.0)) / front;
+    vec3 r = reflect(-v, n);
+    lit = mix(lit, base * studio(r) / studio(vec3(0.0, 0.0, 1.0)), metal);
+    float spec = pow(max(dot(n, normalize(KEY + v)), 0.0), 70.0);
+    float rim = pow(1.0 - max(dot(n, v), 0.0), 4.0);
+    return lit + vec3(gloss * (1.3 * spec + 0.35 * rim));
+  }
+`
+
 const EASINGS = /* glsl */ `
   float easeOutCubic(float x) { float y = 1.0 - x; return 1.0 - y * y * y; }
   float easeOutQuint(float x) { float y = 1.0 - x; return 1.0 - y * y * y * y * y; }
@@ -137,15 +170,27 @@ export const FULLSCREEN_VERT = /* glsl */ `
   }
 `
 
-/** A quad in the scene; also passes its world position for frame-space masks. */
+/**
+ * A quad in the scene. Also passes its world position (frame-space masks) and, for the
+ * 3D emblem lighting, its axes and position in view space.
+ */
 export const MESH_VERT = /* glsl */ `
   varying vec2 vUv;
   varying vec2 vWorld;
+  varying vec3 vAxisX;
+  varying vec3 vAxisY;
+  varying vec3 vAxisZ;
+  varying vec3 vViewPos;
   void main() {
     vUv = uv;
     vec4 world = modelMatrix * vec4(position, 1.0);
     vWorld = world.xy;
-    gl_Position = projectionMatrix * viewMatrix * world;
+    vAxisX = normalMatrix * vec3(1.0, 0.0, 0.0);
+    vAxisY = normalMatrix * vec3(0.0, 1.0, 0.0);
+    vAxisZ = normalMatrix * vec3(0.0, 0.0, 1.0);
+    vec4 view = viewMatrix * world;
+    vViewPos = view.xyz;
+    gl_Position = projectionMatrix * view;
   }
 `
 
@@ -196,15 +241,38 @@ export const LOGO_FRAG = /* glsl */ `
   uniform vec4 revealB;
   uniform vec4 shine;
   uniform vec2 shineDir;
+  uniform vec4 emblem;
+  uniform float mirror;
   varying vec2 vUv;
   varying vec2 vWorld;
+  varying vec3 vAxisX;
+  varying vec3 vAxisY;
+  varying vec3 vAxisZ;
+  varying vec3 vViewPos;
   ${SRGB_ENCODE}
   ${LOGO_SAMPLING}
   ${SHINE}
   ${EASINGS}
   ${NOISE}
+  ${EMBLEM_LIGHT}
 
   float bell(float x, float width) { float y = x / width; return exp(-y * y); }
+
+  /*
+   * Bevelled face: the coverage, blurred over the bevel width, is a height field whose
+   * slope tilts the normal near every edge (outline, letters, holes). 'emblem' = (on,
+   * bevel width in texels, gloss, metal).
+   */
+  vec3 emblemFace(vec3 base, vec2 at) {
+    float w = emblem.y;
+    float lod = log2(max(w * 0.35, 1.0));
+    vec2 o = vec2(w * 0.5) / texSize;
+    float hx = texelLod(map, at + vec2(o.x, 0.0), lod).a - texelLod(map, at - vec2(o.x, 0.0), lod).a;
+    float hy = texelLod(map, at + vec2(0.0, o.y), lod).a - texelLod(map, at - vec2(0.0, o.y), lod).a;
+    vec3 n = normalize(vec3(-hx, -hy, 0.55));
+    vec3 nv = normalize(n.x * normalize(vAxisX) + n.y * normalize(vAxisY) + n.z * normalize(vAxisZ));
+    return emblemLight(base, nv, vViewPos, emblem.z, emblem.w);
+  }
 
   void main() {
     vec2 u = (vUv - 0.5) * uvScale + 0.5;
@@ -276,10 +344,15 @@ export const LOGO_FRAG = /* glsl */ `
     }
 
     vec4 s = logoSample(map, texSize, at, blurRadius, motion, dx, dy);
-    vec3 color = linearToSrgb(s.rgb / max(s.a, 1e-6));
+    vec3 base = s.rgb / max(s.a, 1e-6);
+    if (emblem.x > 0.5) base = emblemFace(base, at);
+    vec3 color = linearToSrgb(base);
     color = mix(color, vec3(1.0), clamp(flash + glow, 0.0, 1.0));
     color = applyShine(color, content, aspect, shine, shineDir);
-    gl_FragColor = vec4(color, s.a * mask * opacity);
+    float alpha = s.a * mask * opacity;
+    // Floor reflection: strongest where the logo meets the floor, fading upwards.
+    if (mirror > 0.0) alpha *= mirror * (1.0 - smoothstep(0.0, 0.6, content.y));
+    gl_FragColor = vec4(color, alpha);
   }
 `
 
@@ -443,5 +516,59 @@ export const PARTICLE_FRAG = /* glsl */ `
   void main() {
     float r = length(gl_PointCoord - 0.5) * 2.0;
     gl_FragColor = vec4(vColor, vAlpha * (1.0 - smoothstep(0.55, 1.0, r)));
+  }
+`
+
+/*
+ * The emblem's thickness: copies of the logo's silhouette stacked behind it ('slice' 0 →
+ * just behind the face, 1 → the back), lit like the sides of a solid.
+ */
+export const EXTRUDE_VERT = /* glsl */ `
+  attribute float slice;
+  uniform float thickness;
+  varying vec2 vUv;
+  varying float vSlice;
+  varying vec3 vAxisX;
+  varying vec3 vAxisY;
+  varying vec3 vViewPos;
+  void main() {
+    vUv = uv;
+    vSlice = slice;
+    vAxisX = normalMatrix * vec3(1.0, 0.0, 0.0);
+    vAxisY = normalMatrix * vec3(0.0, 1.0, 0.0);
+    vec4 view = modelViewMatrix * vec4(position.xy, -slice * thickness, 1.0);
+    vViewPos = view.xyz;
+    gl_Position = projectionMatrix * view;
+  }
+`
+
+export const EXTRUDE_FRAG = /* glsl */ `
+  uniform sampler2D map;
+  uniform vec2 texSize;
+  uniform float opacity;
+  uniform vec4 emblem;
+  varying vec2 vUv;
+  varying float vSlice;
+  varying vec3 vAxisX;
+  varying vec3 vAxisY;
+  varying vec3 vViewPos;
+  ${SRGB_ENCODE}
+  ${LOGO_SAMPLING}
+  ${EMBLEM_LIGHT}
+
+  void main() {
+    vec4 t = texture2D(map, vec2(vUv.x, 1.0 - vUv.y));
+    // The side faces outwards, along the silhouette's gradient.
+    float lod = log2(max(emblem.y * 0.35, 1.0));
+    vec2 o = vec2(emblem.y * 0.5) / texSize;
+    vec2 g = -vec2(
+      texelLod(map, vUv + vec2(o.x, 0.0), lod).a - texelLod(map, vUv - vec2(o.x, 0.0), lod).a,
+      texelLod(map, vUv + vec2(0.0, o.y), lod).a - texelLod(map, vUv - vec2(0.0, o.y), lod).a
+    );
+    vec2 outward = dot(g, g) > 1e-8 ? normalize(g) : vec2(0.0, -1.0);
+    vec3 n = normalize(outward.x * normalize(vAxisX) + outward.y * normalize(vAxisY));
+    // Sides are darker than the face and fade towards the back.
+    vec3 side = emblemLight(t.rgb * 0.62, n, vViewPos, emblem.z * 0.6, emblem.w) * (1.0 - 0.35 * vSlice);
+    gl_FragColor = vec4(linearToSrgb(side), t.a * opacity);
   }
 `

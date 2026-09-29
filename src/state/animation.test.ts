@@ -50,6 +50,24 @@ describe('resolveAnimation', () => {
   })
 })
 
+describe('finish', () => {
+  it('is null for a flat logo without reflection, and carries the emblem settings otherwise', () => {
+    expect(resolveAnimation(DEFAULT_ANIMATION).finish).toBeNull()
+    expect(resolveAnimation(patchAnimation(DEFAULT_ANIMATION, { finish: { reflection: 0.3 } })).finish).toMatchObject({
+      emblem: false,
+      reflection: 0.3,
+    })
+    expect(resolveAnimation(patchAnimation(DEFAULT_ANIMATION, { finish: { kind: 'emblem' } })).finish).toEqual({
+      emblem: true,
+      depth: DEFAULT_ANIMATION.finish.depth,
+      bevel: DEFAULT_ANIMATION.finish.bevel,
+      gloss: DEFAULT_ANIMATION.finish.gloss,
+      metal: DEFAULT_ANIMATION.finish.metal,
+      reflection: 0,
+    })
+  })
+})
+
 describe('resolveTransition', () => {
   it('uses the natural length and a valid direction', () => {
     const spec = resolveTransition({ ...DEFAULT_SEQUENCE, transition: 'push', direction: 'up' })
