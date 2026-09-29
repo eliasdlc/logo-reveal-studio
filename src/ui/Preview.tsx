@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { LogoStage } from '../engine/stage'
-import type { LogoBitmap } from '../engine/types'
+import type { StageLogo } from '../engine/types'
 import { CLIP_DURATION, useStudio } from '../state/store'
 
 /** 16:9 live preview. Draws through the same LogoStage.renderFrame(t) the exporter uses. */
@@ -16,13 +16,15 @@ export function Preview() {
     container.appendChild(canvas)
     const stage = new LogoStage(canvas)
 
-    let shownLogo: LogoBitmap | null = null
+    let shownLogo: StageLogo | null = null
     const draw = () => {
       const s = useStudio.getState()
-      if (s.logo !== shownLogo) {
-        stage.setLogo(s.logo)
-        shownLogo = s.logo
+      const logo = s.logo?.processed?.stage ?? null
+      if (logo !== shownLogo) {
+        stage.setLogo(logo)
+        shownLogo = logo
       }
+      stage.setLogoScale(s.logo?.options.scale ?? 1)
       stage.setSettings(s.settings)
       stage.setEffect(s.effect)
       stage.renderFrame(s.time)

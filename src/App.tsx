@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
-import { loadLogoFromSvg } from './processing/load'
+import { decodeSvg } from './processing/decode'
 import { useStudio } from './state/store'
+import { useLogoProcessing } from './state/useLogoProcessing'
 import { DEMO_LOGO_SVG } from './ui/demoLogo'
 import { Preview } from './ui/Preview'
 import { Sidebar } from './ui/Sidebar'
@@ -9,13 +10,14 @@ import { Transport } from './ui/Transport'
 const hasWebCodecs = typeof window !== 'undefined' && 'VideoEncoder' in window
 
 export default function App() {
-  const setLogo = useStudio((s) => s.setLogo)
+  const loadLogo = useStudio((s) => s.loadLogo)
+  useLogoProcessing()
 
   useEffect(() => {
-    void loadLogoFromSvg(DEMO_LOGO_SVG).then((bitmap) => {
-      if (!useStudio.getState().logo) setLogo(bitmap, 'Logo de ejemplo')
+    void decodeSvg(DEMO_LOGO_SVG).then((source) => {
+      if (!useStudio.getState().logo) loadLogo('Logo de ejemplo', source)
     })
-  }, [setLogo])
+  }, [loadLogo])
 
   return (
     <div className="flex h-screen flex-col bg-neutral-950 text-neutral-100">

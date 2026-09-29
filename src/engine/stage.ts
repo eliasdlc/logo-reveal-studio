@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { hexToRgb } from './color'
 import { EFFECTS, type EffectId, type EffectState } from './effects'
-import { FRAME_HEIGHT, fitLogo } from './layout'
-import { DEFAULT_STAGE_SETTINGS, type LogoBitmap, type StageSettings } from './types'
+import { FRAME_HEIGHT, normalizedLogoSize } from './layout'
+import { DEFAULT_STAGE_SETTINGS, type StageLogo, type StageSettings } from './types'
 
 const FOV = 28
 const CAMERA_DISTANCE = FRAME_HEIGHT / 2 / Math.tan(THREE.MathUtils.degToRad(FOV / 2))
@@ -102,7 +102,11 @@ export class LogoStage {
 
   private target: THREE.WebGLRenderTarget | null = null
   private texture: THREE.DataTexture | null = null
+  /** Content aspect ratio (without padding). */
   private logoAspect = 1
+  /** Full texture size relative to its content, per axis (≥ 1 because of the padding). */
+  private paddingScale = { x: 1, y: 1 }
+  private logoScale = 1
   private width = 0
   private height = 0
 
@@ -204,13 +208,14 @@ export class LogoStage {
     this.effect = effect
   }
 
-  setLogo(bitmap: LogoBitmap | null): void {
+  setLogo(logo: StageLogo | null): void {
     this.texture?.dispose()
     this.texture = null
-    this.logo.visible = bitmap !== null
+    this.logo.visible = logo !== null
     this.logo.material.uniforms.map.value = null
-    if (!bitmap) return
+    if (!logo) return
 
+    const { bitmap, padding } = logo
     const texture = new THREE.DataTexture(
       new Uint8Array(bitmap.data.buffer, bitmap.data.byteOffset, bitmap.data.byteLength),
       bitmap.width,
@@ -227,9 +232,17 @@ export class LogoStage {
     texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
     texture.needsUpdate = true
 
+    const contentW = bitmap.width - 2 * padding
+    const contentH = bitmap.height - 2 * padding
     this.texture = texture
-    this.logoAspect = bitmap.width / bitmap.height
+    this.logoAspect = contentW / contentH
+    this.paddingScale = { x: bitmap.width / contentW, y: bitmap.height / contentH }
     this.logo.material.uniforms.map.value = texture
+  }
+
+  /** Manual per-logo size multiplier, on top of the automatic normalization. */
+  setLogoScale(scale: number): void {
+    this.logoScale = scale
   }
 
   /** Draws the exact state of the scene at clip time `t` (seconds). */
@@ -248,11 +261,12 @@ export class LogoStage {
   }
 
   private applyState(state: EffectState): void {
-    const { width, height } = fitLogo(this.logoAspect, this.camera.aspect)
-    const w = width * state.scale
-    const h = height * state.scale
+    const size = normalizedLogoSize(this.logoAspect, this.camera.aspect)
+    // w × h is the visible content; the quad is a bit larger to hold the transparent margin.
+    const w = size.width * this.logoScale * state.scale
+    const h = size.height * this.logoScale * state.scale
 
-    this.logo.scale.set(w, h, 1)
+    this.logo.scale.set(w * this.paddingScale.x, h * this.paddingScale.y, 1)
     this.logo.rotation.set(state.rotX * DEG, state.rotY * DEG, 0)
     this.logo.material.uniforms.opacity.value = state.opacity
 

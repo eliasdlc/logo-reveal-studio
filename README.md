@@ -21,8 +21,11 @@ Requiere Chrome o Edge de escritorio (WebCodecs para exportar).
 
 ## Estructura
 
-- `src/engine/` — escena Three.js (`LogoStage.renderFrame(t)`), efectos puros y easings.
-- `src/processing/` — carga de PNG/SVG y preparación de la textura.
+- `src/engine/` — escena Three.js (`LogoStage.renderFrame(t)`), efectos puros, easings y
+  normalización de tamaño (misma área visual, máx. 55% × 45% del frame).
+- `src/processing/` — carga de PNG/JPG/SVG y preparación de la textura:
+  análisis de transparencia, quitar fondo blanco (opcional), auto-trim, margen
+  transparente, color bleeding y rasterizado de SVG a 2× su tamaño en pantalla.
 - `src/export/` — export MP4 frame por frame (fase 4).
 - `src/ui/` — componentes React.
 - `src/state/` — estado global (Zustand).

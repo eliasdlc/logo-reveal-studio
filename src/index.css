@@ -10,3 +10,9 @@ body {
   margin: 0;
   background: #0a0a0a;
 }
+
+.checkerboard {
+  background-color: #fff;
+  background-image: conic-gradient(#e5e5e5 25%, transparent 0 50%, #e5e5e5 0 75%, transparent 0);
+  background-size: 16px 16px;
+}

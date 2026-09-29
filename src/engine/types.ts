@@ -5,7 +5,14 @@
 export interface LogoBitmap {
   width: number
   height: number
-  data: Uint8ClampedArray
+  data: Uint8ClampedArray<ArrayBuffer>
+}
+
+/** A processed logo ready for the stage: trimmed content plus a transparent margin. */
+export interface StageLogo {
+  bitmap: LogoBitmap
+  /** Transparent margin (px) on every side of the content. Keeps the quad's edges invisible. */
+  padding: number
 }
 
 export interface StageSettings {
