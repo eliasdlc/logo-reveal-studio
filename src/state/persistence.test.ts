@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_STAGE_SETTINGS } from '../engine/types'
 import { CLEAR, WHITE, paint, rect } from '../processing/testUtils'
 import { DEFAULT_ANIMATION, DEFAULT_SEQUENCE, normalizeAnimation, patchAnimation } from './animation'
-import { parseSession, toSession } from './persistence'
+import { parseSession, toSession, typeFromName } from './persistence'
 import { DEFAULT_LOGO_OPTIONS, useStudio, type LogoItem } from './store'
 
 const bitmap = paint(20, 20, rect(4, 4, 16, 16, WHITE, CLEAR))
@@ -80,6 +80,35 @@ describe('parseSession', () => {
     expect(session.sequence).toEqual({ ...DEFAULT_SEQUENCE, duration: 2 })
     expect(session.settings).toEqual(DEFAULT_STAGE_SETTINGS)
     expect(session).toMatchObject({ resolution: 1080, fps: 60, previewMode: 'logo', padEnds: false, loop: true })
+  })
+})
+
+describe('project', () => {
+  it('is kept with the session', () => {
+    const project = { id: 'p1', name: 'BarCamp', savedAt: 1700000000000, dirty: true }
+    const session = toSession({ ...useStudio.getState(), project, logos: [logo('a')] })
+    expect(parseSession(JSON.stringify(session))!.project).toEqual(project)
+  })
+
+  it('treats work saved before projects existed as unsaved, untitled work', () => {
+    const legacy = (logos: unknown[]) => parseSession(JSON.stringify({ version: 1, logos }))!.project
+    expect(legacy([{ id: 'a', name: 'a.png' }])).toEqual({ id: null, name: 'Sin título', savedAt: null, dirty: true })
+    // Only the sample logo: there is nothing to lose.
+    expect(legacy([{ id: 'd', name: 'Logo de ejemplo', demo: true }]).dirty).toBe(false)
+  })
+
+  it('repairs a broken project entry', () => {
+    const raw = { version: 1, logos: [], project: { id: 4, name: '  ', savedAt: 'ayer', dirty: 'yes' } }
+    expect(parseSession(JSON.stringify(raw))!.project).toEqual({ id: null, name: 'Sin título', savedAt: null, dirty: false })
+  })
+})
+
+describe('typeFromName', () => {
+  it('recovers the image type from the file name', () => {
+    expect(typeFromName('logo.PNG')).toBe('image/png')
+    expect(typeFromName('a.b.svg')).toBe('image/svg+xml')
+    expect(typeFromName('photo.jpeg')).toBe('image/jpeg')
+    expect(typeFromName('sin-extension')).toBe('')
   })
 })
 

@@ -48,7 +48,9 @@ los logos y cada logo puede tener la suya («Personalizar solo este logo»).
   sólida con grosor real, bordes biselados en cada forma y letra, y una iluminación de
   estudio con brillos y reflejo metálico que se mueven al girar (luce mejor con
   «Inclinación 3D» o «Balanceo 3D» en reposo). Grosor, bisel, brillo y reflejo metálico
-  son ajustables, y cualquier logo puede tener además un reflejo en el suelo.
+  son ajustables, y cualquier logo puede tener además un reflejo en el suelo. Con el
+  Emblema 3D, el «Morph líquido» también funde un emblema en el otro con la misma luz,
+  bisel y reflejo.
 - **Salida** — los mismos efectos (o ninguna), con su duración, intensidad y dirección.
 - **Secuencia** — cómo pasa cada logo al siguiente: Morph líquido y Morph de partículas
   (un logo se transforma en el otro), Fundido cruzado, Zoom desenfocado, Giro, Empuje,
@@ -64,6 +66,23 @@ Todo se guarda solo en el navegador: al recargar la página vuelven los logos (e
 orden), sus ajustes, las animaciones, la secuencia, la escena y el export. Los ajustes van
 a `localStorage` y los archivos subidos a IndexedDB (`src/state/persistence.ts`); al
 arrancar se decodifican y procesan de nuevo. Borrar un logo borra también su archivo.
+
+## Proyectos
+
+Arriba a la derecha está el proyecto abierto, con su estado («Cambios sin guardar» o la
+hora del último guardado):
+
+- **Guardar** (Ctrl/Cmd+S) guarda sobre el proyecto abierto; si todavía no tiene nombre,
+  lo pide. **Guardar como…** crea un proyecto nuevo con otro nombre.
+- **Proyectos** abre la biblioteca: abrir, eliminar, empezar uno nuevo, y **Exportar /
+  Importar archivo** (`.logoreveal`, un zip con los ajustes y los logos) para hacer copia
+  de seguridad o llevarlo a otro equipo.
+
+Un proyecto guarda todo: logos (con sus archivos) y su orden, ajustes de cada logo,
+animaciones generales y propias, secuencia, escena y export. La biblioteca vive en
+IndexedDB, en este navegador. Antes de reemplazar trabajo sin guardar, la app pide
+confirmación. El trabajo de versiones anteriores se abre como «Sin título» con cambios sin
+guardar, listo para «Guardar como…».
 
 ## Estructura
 

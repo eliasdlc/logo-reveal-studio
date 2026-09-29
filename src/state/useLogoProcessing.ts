@@ -1,14 +1,23 @@
 import { useEffect, useRef } from 'react'
 import { processLogo, type ProcessOptions } from '../processing/pipeline'
+import type { LogoSource } from '../processing/decode'
 import { useStudio, type LogoItem } from './store'
 
 /** Delay before re-processing while a slider is being dragged. */
 const DEBOUNCE_MS = 150
 
-interface Job {
+/** What a logo was processed from: its options and its decoded image. */
+interface Input {
   key: string
+  source: LogoSource
+}
+
+interface Job extends Input {
   timer: ReturnType<typeof setTimeout>
 }
+
+// A logo can come back with the same id but a new image (reopening a project).
+const same = (a: Input | undefined, b: Input) => a?.key === b.key && a.source === b.source
 
 function optionsFor(logo: LogoItem, outputHeight: number): ProcessOptions {
   const { removeWhite, whiteThreshold, removeEnclosedWhite, scale } = logo.options
@@ -30,7 +39,7 @@ export function useLogoProcessing(): void {
   const logos = useStudio((s) => s.logos)
   const resolution = useStudio((s) => s.resolution)
   const setProcessed = useStudio((s) => s.setProcessed)
-  const done = useRef(new Map<string, string>())
+  const done = useRef(new Map<string, Input>())
   const pending = useRef(new Map<string, Job>())
 
   useEffect(() => {
@@ -45,8 +54,8 @@ export function useLogoProcessing(): void {
 
     logos.forEach((logo, index) => {
       const options = optionsFor(logo, resolution)
-      const key = JSON.stringify(options)
-      if (done.current.get(logo.id) === key || pending.current.get(logo.id)?.key === key) return
+      const input: Input = { key: JSON.stringify(options), source: logo.source }
+      if (same(done.current.get(logo.id), input) || same(pending.current.get(logo.id), input)) return
 
       const isNew = !done.current.has(logo.id)
       clearTimeout(pending.current.get(logo.id)?.timer)
@@ -54,14 +63,14 @@ export function useLogoProcessing(): void {
       const delay = isNew ? index * 10 : DEBOUNCE_MS
       const timer = setTimeout(() => {
         pending.current.delete(logo.id)
-        done.current.set(logo.id, key)
+        done.current.set(logo.id, input)
         try {
           setProcessed(logo.id, { processed: processLogo(logo.source, options) })
         } catch (e) {
           setProcessed(logo.id, { error: e instanceof Error ? e.message : 'No se pudo procesar la imagen.' })
         }
       }, delay)
-      pending.current.set(logo.id, { key, timer })
+      pending.current.set(logo.id, { ...input, timer })
     })
   }, [logos, resolution, setProcessed])
 

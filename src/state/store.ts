@@ -58,7 +58,21 @@ export interface NewLogo {
 
 export type PreviewMode = 'logo' | 'sequence'
 
+/** The project the work belongs to. */
+export interface ProjectInfo {
+  /** Id in the project library; null until it's saved there. */
+  id: string | null
+  name: string
+  /** When it was last saved to the library (ms since epoch). */
+  savedAt: number | null
+  /** Changed since it was last saved or opened. */
+  dirty: boolean
+}
+
+export const UNTITLED_PROJECT: ProjectInfo = { id: null, name: 'Sin título', savedAt: null, dirty: false }
+
 interface StudioState {
+  project: ProjectInfo
   logos: LogoItem[]
   selectedId: string | null
   /** The animation every logo follows unless it has its own. */
@@ -115,6 +129,7 @@ const withAnimation = (logo: LogoItem, animation: AnimationSettings | null): Log
 })
 
 export const useStudio = create<StudioState>()((set) => ({
+  project: UNTITLED_PROJECT,
   logos: [],
   selectedId: null,
   animation: DEFAULT_ANIMATION,
